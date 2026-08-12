@@ -11,6 +11,7 @@ from src.utils import (
     find_club_role_mention,
     find_game_row,
     find_location_row,
+    post_bot_log,
 )
 
 
@@ -83,6 +84,24 @@ async def process_schedule_submission(
         )
     except Exception as exc:
         print(f"[SCHEDULE] failed to update Game sheet: {exc}")
+        await post_bot_log(
+            bot,
+            "SCHEDULE",
+            "process_schedule_submission",
+            datetime.now(ZoneInfo("Asia/Tokyo")),
+            success=False,
+            context={
+                "channel_id": getattr(channel, "id", None),
+                "guild_id": getattr(guild, "id", None),
+                "division": division,
+                "home": home_alias,
+                "away": away_alias,
+                "date": date_str,
+                "time": time_str,
+                "location": location,
+            },
+            exc=exc,
+        )
         await interaction.followup.send(
             "管理スプレッドシートへの書き込みに失敗しました。", ephemeral=True
         )
@@ -124,6 +143,24 @@ async def process_schedule_submission(
         )
     except Exception as exc:
         print(f"[SCHEDULE] failed to create calendar event: {exc}")
+        await post_bot_log(
+            bot,
+            "SCHEDULE",
+            "process_schedule_submission",
+            datetime.now(ZoneInfo("Asia/Tokyo")),
+            success=False,
+            context={
+                "channel_id": getattr(channel, "id", None),
+                "guild_id": getattr(guild, "id", None),
+                "division": division,
+                "home": home_alias,
+                "away": away_alias,
+                "event_name": event_name,
+                "start_iso": start_dt.isoformat(),
+                "end_iso": end_dt.isoformat(),
+            },
+            exc=exc,
+        )
 
     home_mention = find_club_role_mention(guild, home_alias, bot.club_alias_map)
     away_mention = find_club_role_mention(guild, away_alias, bot.club_alias_map)

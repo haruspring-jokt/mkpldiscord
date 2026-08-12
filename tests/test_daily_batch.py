@@ -3,6 +3,7 @@ import unittest
 from datetime import datetime
 from unittest import mock
 
+from src.bot import LeagueBot
 from src.handlers.applications import (
     get_apply_forum_ids,
     get_apply_type_options,
@@ -112,6 +113,36 @@ class DailyBatchTests(unittest.TestCase):
         self.assertIn("ベンチ入り6名ルール", message)
         self.assertIn("スタメンが3人vs4人の特別ルール", message)
         self.assertIn("https://example.com/form", message)
+
+    def test_build_bot_log_content_for_batch_success_and_error(self):
+        bot = LeagueBot.__new__(LeagueBot)
+        success_text = bot._build_log_content(
+            "定期バッチ",
+            "send_10th_reminders_job",
+            datetime(2026, 9, 10, 9, 0, 0),
+            success=True,
+            context={"target_yymm": "2609"},
+        )
+        self.assertIn("定期バッチ", success_text)
+        self.assertIn("send_10th_reminders_job", success_text)
+        self.assertIn("2026-09-10 09:00:00", success_text)
+        self.assertIn("2609", success_text)
+
+        try:
+            raise ValueError("bad schedule")
+        except ValueError as exc:
+            error_text = bot._build_log_content(
+                "定期バッチ",
+                "send_10th_reminders_job",
+                datetime(2026, 9, 10, 9, 0, 0),
+                success=False,
+                context={"target_yymm": "2609"},
+                exc=exc,
+            )
+        self.assertIn("ERROR", error_text)
+        self.assertIn("ValueError", error_text)
+        self.assertIn("bad schedule", error_text)
+        self.assertIn("Traceback", error_text)
 
     def test_build_match_day_reminder_message_div2(self):
         message = build_match_day_reminder_message("div2", "https://example.com/form")

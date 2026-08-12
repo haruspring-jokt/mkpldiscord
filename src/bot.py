@@ -12,6 +12,7 @@ import json
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import discord
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -32,6 +33,7 @@ from src.jobs.daily_batch import update_last_post_dates_for_match_channels
 from src.jobs.reminder_10 import send_10th_reminders
 from src.jobs.reminder_20 import send_20th_reminders
 from src.jobs.reminder_25 import send_25th_reminders
+from src.utils import build_bot_log_content, post_bot_log
 
 
 class LeagueBot(commands.Bot):
@@ -117,6 +119,26 @@ class LeagueBot(commands.Bot):
 
         await handle_message_commands(self, message)
 
+    def _build_log_content(
+        self,
+        category: str,
+        operation: str,
+        triggered_at: datetime,
+        *,
+        success: bool,
+        context: dict[str, object] | None = None,
+        exc: BaseException | None = None,
+    ) -> str:
+        """BOT_LOG_CHANNEL_ID に投稿する詳細ログ本文を生成します。"""
+        return build_bot_log_content(
+            category,
+            operation,
+            triggered_at,
+            success=success,
+            context=context,
+            exc=exc,
+        )
+
     def _get_job_schedule(self, prefix: str) -> tuple[bool, tuple[int, int, int]]:
         """環境変数からジョブの実行可否と実行時刻(DDHHMM)を読み取る。"""
         enabled = os.getenv(f"{prefix}_ENABLED", "0").strip().lower() in (
@@ -157,7 +179,12 @@ class LeagueBot(commands.Bot):
                 print(f"[REMINDER] disabled: {prefix}")
                 continue
             self.scheduler.add_job(
-                job_method, "cron", day=day, hour=hour, minute=minute
+                job_method,
+                "cron",
+                id=prefix,
+                day=day,
+                hour=hour,
+                minute=minute,
             )
             print(f"[REMINDER] scheduled {prefix} at {day:02d}/{hour:02d}:{minute:02d}")
 
@@ -183,6 +210,7 @@ class LeagueBot(commands.Bot):
         self.scheduler.add_job(
             self.send_daily_batch_job,
             "cron",
+            id="daily_batch",
             hour=hour,
             minute=minute,
         )
@@ -239,6 +267,7 @@ class LeagueBot(commands.Bot):
         self.scheduler.add_job(
             self.send_game_channel_create_batch_job,
             "cron",
+            id="game_channel_create_batch",
             day=day,
             hour=hour,
             minute=minute,
@@ -251,12 +280,47 @@ class LeagueBot(commands.Bot):
 
     def _aps_job_listener(self, event) -> None:
         """APScheduler のジョブ実行イベントを受け取りログ出力する。"""
-        try:
+        job_id = getattr(event, "job_id", "unknown")
+        job = self.scheduler.get_job(job_id) if job_id != "unknown" else None
+        triggered_at = datetime.now(ZoneInfo("Asia/Tokyo"))
             if getattr(event, "exception", None):
-                print(f"[APS] job {event.job_id} raised exception: {event.exception}")
+                print(f"[APS] job {job_id} raised exception: {event.exception}")
+                asyncio.create_task(
+                    post_bot_log(
+                        self,
+                        "BATCH",
+                        job_id,
+                        triggered_at,
+                        success=False,
+                        context={
+                            "job_id": job_id,
+                            "job_name": getattr(event.job, "name", "unknown"),
+                            "next_run_time": str(
+                                getattr(event.job, "next_run_time", "")
+                            ),
+                        },
+                        exc=event.exception,
+                    )
+                )
             else:
                 print(
-                    f"[APS] job {event.job_id} executed successfully at {datetime.now().isoformat()}"
+                    f"[APS] job {job_id} executed successfully at {triggered_at.isoformat()}"
+                )
+                asyncio.create_task(
+                    post_bot_log(
+                        self,
+                        "BATCH",
+                        job_id,
+                        triggered_at,
+                        success=True,
+                        context={
+                            "job_id": job_id,
+                            "job_name": getattr(event.job, "name", "unknown"),
+                            "next_run_time": str(
+                                getattr(event.job, "next_run_time", "")
+                            ),
+                        },
+                    )
                 )
         except Exception as exc:
             print(f"[APS] job listener error: {exc}")

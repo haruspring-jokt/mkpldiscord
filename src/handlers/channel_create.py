@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 import discord
 
@@ -8,6 +9,7 @@ from src.utils import (
     find_game_row,
     is_month_within_season,
     parse_match_channel,
+    post_bot_log,
 )
 
 
@@ -96,4 +98,19 @@ async def handle_guild_channel_create(
     except Exception as exc:
         print(
             f"[CHANNEL] failed to send message to {channel.name} ({channel.id}): {exc}"
+        )
+        await post_bot_log(
+            bot,
+            "CHANNEL",
+            "handle_guild_channel_create",
+            datetime.now(),
+            success=False,
+            context={
+                "channel_name": channel.name,
+                "channel_id": channel.id,
+                "yymm": yymm,
+                "home": home,
+                "away": away,
+            },
+            exc=exc,
         )

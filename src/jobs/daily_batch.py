@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from discord.ext import commands
 
 from src.jobs.shared import get_active_category_ids
-from src.utils import is_month_within_season, parse_match_channel
+from src.utils import is_month_within_season, parse_match_channel, post_bot_log
 
 
 def format_sheet_date(dt: datetime, now: datetime | None = None) -> str:
@@ -76,6 +76,15 @@ async def send_match_day_reminders(bot: commands.Bot) -> None:
     except Exception as exc:
         print(
             f"[DAILY-BATCH] failed to read shared sheet for match-day reminders: {exc}"
+        )
+        await post_bot_log(
+            bot,
+            "DAILY-BATCH",
+            "send_match_day_reminders",
+            datetime.now(ZoneInfo("Asia/Tokyo")),
+            success=False,
+            context={"sheet": "場所調整!A1:Z200", "target_date": today.isoformat()},
+            exc=exc,
         )
         return
 
@@ -152,6 +161,20 @@ async def send_match_day_reminders(bot: commands.Bot) -> None:
                 print(f"[DAILY-BATCH] sent match-day reminder to {channel.name}")
             except Exception as exc:
                 print(f"[DAILY-BATCH] failed to send reminder to {channel.name}: {exc}")
+                await post_bot_log(
+                    bot,
+                    "DAILY-BATCH",
+                    "send_match_day_reminders",
+                    datetime.now(ZoneInfo("Asia/Tokyo")),
+                    success=False,
+                    context={
+                        "channel_name": channel.name,
+                        "channel_id": getattr(channel, "id", None),
+                        "division": division_key,
+                        "form_url": form_url,
+                    },
+                    exc=exc,
+                )
 
 
 async def update_last_post_dates_for_match_channels(
@@ -243,6 +266,20 @@ async def update_last_post_dates_for_match_channels(
                 print(
                     f"[DAILY-BATCH] could not inspect history for {channel.name}: {exc}"
                 )
+                await post_bot_log(
+                    bot,
+                    "DAILY-BATCH",
+                    "update_last_post_dates_for_match_channels",
+                    datetime.now(ZoneInfo("Asia/Tokyo")),
+                    success=False,
+                    context={
+                        "channel_name": channel.name,
+                        "channel_id": getattr(channel, "id", None),
+                        "division": metadata.get("division"),
+                        "yymm": metadata.get("yymm"),
+                    },
+                    exc=exc,
+                )
                 continue
 
             if last_message is None:
@@ -265,3 +302,12 @@ async def update_last_post_dates_for_match_channels(
             )
         except Exception as exc:
             print(f"[DAILY-BATCH] failed to batch-update sheet values: {exc}")
+            await post_bot_log(
+                bot,
+                "DAILY-BATCH",
+                "update_last_post_dates_for_match_channels",
+                datetime.now(ZoneInfo("Asia/Tokyo")),
+                success=False,
+                context={"update_count": len(update_requests)},
+                exc=exc,
+            )
