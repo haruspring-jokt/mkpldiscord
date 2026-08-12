@@ -133,14 +133,33 @@ async def process_schedule_submission(
 
     completion_message = (
         f"{home_mention} {away_mention} \n"
-        "試合情報を反映しました。\n\n"
-        "対戦後は提出物（スコアシート写真、試合前写真、試合後写真）をこのチャンネルにアップしてください。\n\n"
+        "試合情報を反映しました。対戦後は提出物（スコアシート写真、試合前写真、試合後写真）をこのチャンネルにアップしてください。\n"
+        "試合当日の流れは、シーズンガイドや調整方法チャンネルを参照してください。\n\n"
         "【ホームクラブ代表者様】\n"
         "試合終了後、以下のGoogleフォームに速報の入力をお願いします。\n\n"
-        f":pencil:[試合結果報告フォーム｜{league_label}]({form_url})\n\n"
-        f":desktop:[HP｜日程ページ｜{league_label}]({schedule_url})\n\n"
-        f":scroll:[⚠リーグ外持ち出し禁止⚠調整用シート]({shared_sheet_url})\n\n"
+        f":pencil:[**試合結果報告フォーム**｜{league_label}]({form_url})\n\n"
+        f":desktop:[HP｜日程ページ｜{league_label}]({schedule_url})\n"
+        f":scroll:[⚠リーグ外持ち出し禁止⚠調整用シート]({shared_sheet_url})\n"
         f":calendar:[Googleカレンダー登録リンク]({calendar_link})"
+    )
+
+    submitted_values = {
+        "入力者": getattr(interaction.user, "display_name", str(interaction.user)),
+        "入力日時": datetime.now(ZoneInfo("Asia/Tokyo")).strftime(
+            "%Y-%m-%d %H:%M:%S JST"
+        ),
+        "division": division,
+        "home": home_alias,
+        "away": away_alias,
+        "date": date_str,
+        "time": time_str,
+        "location": location,
+        "round": round_no,
+    }
+    submitted_block = (
+        "```\n"
+        + "\n".join(f"{key}: {value}" for key, value in submitted_values.items())
+        + "\n```"
     )
 
     dry_run = os.getenv("REMINDER_DRY_RUN", "0") in ("1", "true", "True")
@@ -148,6 +167,7 @@ async def process_schedule_submission(
         print(
             f"[SCHEDULE-DRY] would send completion message to channel {channel}: {completion_message[:300]}"
         )
+        print(f"[SCHEDULE-DRY] would send submitted block: {submitted_block}")
         await interaction.followup.send(
             "（DRY RUN）日程登録処理が完了しました。チャンネルへの送信はスキップされました。",
             ephemeral=True,
@@ -155,6 +175,7 @@ async def process_schedule_submission(
         return
 
     await channel.send(completion_message)
+    await channel.send(f"フォーム入力内容のコピー\n{submitted_block}")
     await interaction.followup.send("日程登録が完了しました。", ephemeral=True)
 
 
