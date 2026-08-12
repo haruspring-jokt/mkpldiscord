@@ -10,8 +10,18 @@ import discord
 
 from src.google_services import GoogleSheetsClient
 
-# g-2406-ABC-XYZ や gc-2407-DEF-GHI のような試合チャンネル名を解析
-CHANNEL_PATTERN = re.compile(r"^(gc?)-(?P<yymm>\d{4})-(?P<rest>.+)$")
+# g-2406-ABC-XYZ や gc-2407-DEF-GHI だけでなく、g-202409-... のような 6 桁表記も受け付けます。
+CHANNEL_PATTERN = re.compile(r"^(gc?)-(?P<yymm>\d{4}|\d{6})-(?P<rest>.+)$")
+
+
+def _normalize_month_code(code: str) -> int:
+    """yyMM / YYYYMM のどちらでも同じ数値に正規化します。"""
+    value = str(code).strip()
+    if len(value) == 4 and value.isdigit():
+        return int(f"20{value}")
+    if len(value) == 6 and value.isdigit():
+        return int(value)
+    raise ValueError(f"unsupported month code: {code!r}")
 
 
 def parse_match_channel(channel_name: str) -> dict[str, str] | None:
@@ -29,6 +39,21 @@ def parse_match_channel(channel_name: str) -> dict[str, str] | None:
     # g- で始まるチャンネルは div1、gc- で始まるチャンネルは div2 それ以外は空文字
     division = "div1" if prefix == "g" else "div2" if prefix == "gc" else ""
     return {"yymm": yymm, "home": home, "away": away, "division": division}
+
+
+def is_month_within_season(
+    yymm: str, season_first_month: str, season_last_month: str
+) -> bool:
+    """試合月がシーズン範囲内かどうかを判定します。"""
+    if not yymm or not season_first_month or not season_last_month:
+        return True
+    try:
+        yymm_num = _normalize_month_code(yymm)
+        first_num = _normalize_month_code(season_first_month)
+        last_num = _normalize_month_code(season_last_month)
+    except ValueError:
+        return False
+    return first_num <= yymm_num <= last_num
 
 
 def find_club_role_mention(

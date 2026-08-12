@@ -28,8 +28,13 @@ from src.reminders import (
     send_monthly_reminders,
     send_20th_reminders,
     send_25th_reminders,
+    update_last_post_dates_for_match_channels,
 )
-from src.handlers import handle_message_commands, handle_guild_channel_create
+from src.handlers import (
+    handle_message_commands,
+    handle_guild_channel_create,
+    handle_thread_create,
+)
 
 
 class LeagueBot(commands.Bot):
@@ -100,6 +105,7 @@ class LeagueBot(commands.Bot):
         if not self._jobs_registered:
             await self.schedule_recurring_reminders()
             await self.schedule_monthly_reminders()
+            await self.schedule_daily_batch()
             self._jobs_registered = True
 
     async def on_message(self, message: discord.Message) -> None:
@@ -187,6 +193,33 @@ class LeagueBot(commands.Bot):
                 minute=0,
             )
 
+    async def schedule_daily_batch(self) -> None:
+        """毎日決まった時刻に共通調整シートの最終投稿日を更新するジョブを登録します。"""
+        enabled = os.getenv("DAILY_BATCH_ENABLED", "0") in ("1", "true", "True")
+        if not enabled:
+            print("[DAILY-BATCH] disabled")
+            return
+
+        raw_time = os.getenv("DAILY_BATCH_TIME", "0700").strip()
+        try:
+            if len(raw_time) != 4 or not raw_time.isdigit():
+                raise ValueError(raw_time)
+            hour = int(raw_time[:2])
+            minute = int(raw_time[2:])
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                raise ValueError(raw_time)
+        except ValueError:
+            print(f"[DAILY-BATCH] invalid DAILY_BATCH_TIME '{raw_time}', fallback 0700")
+            hour, minute = 7, 0
+
+        self.scheduler.add_job(
+            self.send_daily_batch_job,
+            "cron",
+            hour=hour,
+            minute=minute,
+        )
+        print(f"[DAILY-BATCH] scheduled daily at {hour:02d}:{minute:02d}")
+
     async def send_monthly_reminders_job(self) -> None:
         """月次リマインダー送信ジョブ。"""
         await send_monthly_reminders(self, self.club_alias_map)
@@ -198,6 +231,10 @@ class LeagueBot(commands.Bot):
     async def send_25th_reminders_job(self) -> None:
         """25日リマインダー送信ジョブ。"""
         await send_25th_reminders(self, self.club_alias_map)
+
+    async def send_daily_batch_job(self) -> None:
+        """最終非 bot 投稿日の更新ジョブ。"""
+        await update_last_post_dates_for_match_channels(self)
 
     def _aps_job_listener(self, event) -> None:
         """APScheduler のジョブ実行イベントを受け取りログ出力する。"""
@@ -214,3 +251,7 @@ class LeagueBot(commands.Bot):
     async def on_guild_channel_create(self, channel: discord.abc.GuildChannel) -> None:
         """新規チャンネル作成時のハンドラ。"""
         await handle_guild_channel_create(self, channel)
+
+    async def on_thread_create(self, thread: discord.Thread) -> None:
+        """申請フォーラムの新規スレッドを検知して申請種別の選択を促す。"""
+        await handle_thread_create(self, thread)

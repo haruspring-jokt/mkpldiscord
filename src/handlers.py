@@ -14,7 +14,97 @@ from src.utils import (
     find_game_row,
     find_location_row,
     build_gcal_link,
+    is_month_within_season,
 )
+
+
+def get_apply_forum_ids() -> set[int]:
+    """申請フォーラムのチャンネル ID 一覧を返します。"""
+    ids: set[int] = set()
+    for env_key in ("DISCORD_APPLY_FORUM_ID_DIV1", "DISCORD_APPLY_FORUM_ID_DIV2"):
+        raw = os.getenv(env_key, "").strip()
+        if not raw:
+            continue
+        for part in raw.split(","):
+            value = part.strip()
+            if value and value.isdigit():
+                ids.add(int(value))
+    return ids
+
+
+def get_apply_type_options() -> list[tuple[str, str]]:
+    """申請種別の一覧を返します。"""
+    return [
+        ("1", "選手の新規登録"),
+        ("2", "選手の登録内容変更"),
+        ("3", "選手の登録解除"),
+        ("4", "完全移籍の申請"),
+        ("5", "レンタル移籍の申請"),
+        ("6", "クラブ登録内容の変更"),
+        ("7", "その他の申請"),
+    ]
+
+
+def get_apply_type_title(apply_type: str) -> str:
+    """モーダルタイトルを返します。"""
+    return f"{apply_type}の申請"
+
+
+def get_apply_type_fields(apply_type: str) -> list[str]:
+    """申請種別ごとの入力項目一覧を返します。"""
+    field_map = {
+        "選手の新規登録": [
+            "選手名",
+            "都道府県",
+            "その他の内容（実績、得意分野、他所属チームなど）",
+            "その他備考",
+        ],
+        "選手の登録内容変更": [
+            "選手名",
+            "変更内容",
+            "その他備考",
+        ],
+        "選手の登録解除": [
+            "選手名",
+            "その他備考",
+        ],
+        "完全移籍の申請": [
+            "現所属クラブ",
+            "選手名",
+            "その他備考",
+        ],
+        "レンタル移籍の申請": [
+            "現所属クラブ",
+            "選手名",
+            "レンタル期間",
+            "レンタル中制約事項",
+            "その他備考",
+        ],
+        "クラブ登録内容の変更": [
+            "変更内容",
+            "その他備考",
+        ],
+        "その他の申請": [
+            "その他備考",
+        ],
+    }
+    return field_map.get(apply_type, ["その他備考"])
+
+
+def get_round_number_from_game_row(row: list[object]) -> str:
+    """管理シートの Game 行から节番号を取得します。C列に格納されます。"""
+    round_raw = row[2] if len(row) > 2 else None
+    if round_raw in (None, False, "FALSE", ""):
+        return ""
+    return str(round_raw).strip()
+
+
+def get_round_number_from_location_row(row: list[object]) -> str:
+    """場所調整シートの行から節番号を取得します。J列に格納されます。"""
+    round_raw = row[9] if len(row) > 9 else None
+    if round_raw in (None, False, "FALSE", ""):
+        return ""
+    return str(round_raw).strip()
 
 
 async def handle_message_commands(
@@ -28,12 +118,35 @@ async def handle_message_commands(
     await maybe_trigger_schedule_modal(bot, message)
 
 
+async def handle_thread_create(
+    bot: "discord.ext.commands.Bot", thread: discord.Thread
+) -> None:
+    """申請フォーラムの新規スレッドに対して申請種別の選択を促します。"""
+    if not thread.parent_id:
+        return
+    if thread.parent_id not in get_apply_forum_ids():
+        return
+    if thread.owner and thread.owner.bot:
+        return
+
+    await thread.send(
+        "申請の種類を選択してください。\n申請したい内容に該当するボタンを押してください。",
+        view=ApplyTypeSelectionView(),
+    )
+
+
 async def maybe_trigger_schedule_modal(
     bot: "discord.ext.commands.Bot", message: discord.Message
 ) -> None:
     """「@運営 日程」投稿を検知して日程確定モーダルの入り口を表示します。"""
     metadata = parse_match_channel(message.channel.name)
     if not metadata:
+        return
+    season_first_month = os.getenv("LEAGUE_CURRENT_SEASON_FIRST_MONTH", "").strip()
+    season_last_month = os.getenv("LEAGUE_CURRENT_SEASON_LAST_MONTH", "").strip()
+    if not is_month_within_season(
+        metadata["yymm"], season_first_month, season_last_month
+    ):
         return
     if "日程" not in message.content:
         return
@@ -58,6 +171,12 @@ async def handle_guild_channel_create(
     metadata = parse_match_channel(channel.name)
     if not metadata:
         return
+    season_first_month = os.getenv("LEAGUE_CURRENT_SEASON_FIRST_MONTH", "").strip()
+    season_last_month = os.getenv("LEAGUE_CURRENT_SEASON_LAST_MONTH", "").strip()
+    if not is_month_within_season(
+        metadata["yymm"], season_first_month, season_last_month
+    ):
+        return
 
     yymm = metadata["yymm"]
     yy = int(yymm[:2]) + 2000
@@ -67,7 +186,7 @@ async def handle_guild_channel_create(
     dry_run = os.getenv("REMINDER_DRY_RUN", "0") in ("1", "true", "True")
 
     # 該当する試合の節の取得
-    # チャンネル名のホーム略称からホームCID、アウェイ略称からアウェイCIDを取得し、管理スプレッドシートのGameシートから該当する試合行を検索する
+    # Game シートでは節番号が C 列、場所調整シートでは J 列に格納されているため、参照先を切り替える。
     home_cid = bot.club_cid_map.get(home.casefold())
     away_cid = bot.club_cid_map.get(away.casefold())
     if not home_cid or not away_cid:
@@ -75,26 +194,23 @@ async def handle_guild_channel_create(
             f"[CHANNEL] could not find CIDs for home={home} or away={away} in channel {channel.name}"
         )
         return
-    # 管理スプレッドシートのGameシートから該当する試合行を検索
     sheets: GoogleSheetsClient = bot.sheets
+
     game_row = find_game_row(sheets, metadata["division"], home_cid, away_cid)
-    if not game_row:
+    round_no = ""
+    if game_row:
+        _, row_values = game_row
+        round_no = get_round_number_from_game_row(row_values)
+    else:
         print(
-            f"[CHANNEL] could not find game row for home_cid={home_cid}, away_cid={away_cid} in channel {channel.name}"
+            f"[CHANNEL] could not find game row for home_cid={home_cid} or away_cid={away_cid} in channel {channel.name}"
         )
-        return
-    # 節の取得
-    row_idx, row_values = game_row
-    round_raw = row_values[9] if len(row_values) > 9 else None
-    # 節番号の整形
-    round_no = (
-        str(round_raw).strip() if (round_raw not in (None, False, "FALSE", "")) else ""
-    )
 
     # メッセージ本文の作成
+    season_label = os.getenv("LEAGUE_CURRENT_SEASON", "")
     message = (
         "# 日程調整をお願いします\n"
-        f":regional_indicator_s: シーズン：{os.getenv("LEAGUE_CURRENT_SEASON")}\n"
+        f":regional_indicator_s: シーズン：{season_label}\n"
         f":calendar_spiral: 対戦月：{yy}年{mm}月\n"
         f":soccer: 試合節： {round_no}\n"
         f":home: ホーム： {find_club_role_mention(channel.guild, home, bot.club_alias_map)}\n"
@@ -198,11 +314,9 @@ async def process_schedule_submission(
     else:
         print("[SCHEDULE] 場所調整シートに該当する試合行が見つかりませんでした")
 
+
     # 3. Google カレンダーへの登録
-    round_raw = row_values[9] if len(row_values) > 9 else None
-    round_no = (
-        str(round_raw).strip() if (round_raw not in (None, False, "FALSE", "")) else ""
-    )
+    round_no = get_round_number_from_game_row(row_values)
     match_id = str(row_values[2]).strip() if len(row_values) > 2 else ""
     league_label = os.getenv(f"LEAGUE_LABEL_{division.upper()}", "")
     event_prefix = os.getenv(f"LEAGUE_EVENT_PREFIX_{division.upper()}", "")
@@ -224,7 +338,8 @@ async def process_schedule_submission(
             start_iso=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
             end_iso=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
             description=details_text,
-            location=location,
+            # 外部には試合場所非公開なので、場所は空欄にする
+            location="",
             color_id=color_id,
         )
     except Exception as exc:
@@ -262,6 +377,93 @@ async def process_schedule_submission(
 
     await channel.send(completion_message)
     await interaction.followup.send("日程登録が完了しました。", ephemeral=True)
+
+
+class ApplyTypeSelectionView(ui.View):
+    """申請種別選択のためのボタン群。"""
+
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+        for code, label in get_apply_type_options():
+            self.add_item(ApplyTypeButton(code, label))
+
+
+class ApplyTypeButton(ui.Button):
+    """申請種別を選ぶボタン。"""
+
+    def __init__(self, code: str, label: str) -> None:
+        super().__init__(
+            custom_id=f"apply_type:{code}",
+            label=f"{label}",
+            emoji=f"{code}️⃣",
+            style=discord.ButtonStyle.secondary,
+        )
+        self.apply_type = label
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_message(
+            "以下のボタンを押し、申請フォームを開いてください。",
+            view=ApplyFormOpenView(self.apply_type),
+        )
+
+
+class ApplyFormOpenView(ui.View):
+    """申請フォームを開くためのボタン。"""
+
+    def __init__(self, apply_type: str) -> None:
+        super().__init__(timeout=None)
+        self.apply_type = apply_type
+
+    @ui.button(label="申請フォームの表示", style=discord.ButtonStyle.primary)
+    async def open_modal(
+        self, interaction: discord.Interaction, button: ui.Button
+    ) -> None:
+        await interaction.response.send_modal(ApplyRequestModal(self.apply_type))
+
+
+class ApplyRequestModal(ui.Modal):
+    """申請内容の入力用モーダル。"""
+
+    def __init__(self, apply_type: str) -> None:
+        super().__init__(title=get_apply_type_title(apply_type))
+        self.apply_type = apply_type
+        self.inputs: list[ui.TextInput] = []
+
+        for field_name in get_apply_type_fields(apply_type):
+            is_long = (
+                "備考" in field_name
+                or "内容" in field_name
+                or "制約" in field_name
+                or "その他" in field_name
+            )
+            text_input = ui.TextInput(
+                label=field_name,
+                style=discord.TextStyle.long if is_long else discord.TextStyle.short,
+                required=field_name != "その他備考",
+                placeholder=field_name,
+                max_length=2000,
+            )
+            self.add_item(text_input)
+            self.inputs.append(text_input)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        lines = [f"【{self.title}】"]
+        for item in self.inputs:
+            value = item.value.strip()
+            if value:
+                lines.append(f"{item.label}: {value}")
+
+        if not lines[1:]:
+            lines.append("入力なし")
+
+        admin_role_id = os.getenv("ADMIN_ROLE_ID", "").strip()
+        admin_mention = f"<@&{admin_role_id}>" if admin_role_id else "@運営"
+        message = f"{admin_mention}\n" + "\n".join(lines)
+        await interaction.channel.send(message)
+        await interaction.response.send_message(
+            "申請内容をスレッドに送信しました。以降は運営が直接対応します。",
+            ephemeral=True,
+        )
 
 
 class ScheduleModal(ui.Modal):
