@@ -12,6 +12,10 @@ from src.handlers.schedule import (
     get_round_number_from_game_row,
     get_round_number_from_location_row,
 )
+from src.jobs.daily_batch import (
+    build_match_day_reminder_message,
+    send_match_day_reminders,
+)
 from src.reminders import (
     format_sheet_date,
     get_active_category_ids,
@@ -51,7 +55,451 @@ class DailyBatchTests(unittest.TestCase):
             )
 
     def test_format_sheet_date(self):
-        self.assertEqual(format_sheet_date(datetime(2026, 9, 30, 21, 7)), "2026/09/30")
+        self.assertEqual(
+            format_sheet_date(
+                datetime(2026, 9, 29, 21, 7), now=datetime(2026, 9, 30, 8, 0)
+            ),
+            "1日前",
+        )
+        self.assertEqual(
+            format_sheet_date(
+                datetime(2026, 9, 25, 21, 7), now=datetime(2026, 9, 30, 8, 0)
+            ),
+            "5日以上前",
+        )
+
+    def test_batch_get_values_returns_requested_ranges(self):
+        class DummyValues:
+            def __init__(self):
+                self.ranges = None
+
+            def batchGet(self, spreadsheetId, ranges):
+                self.ranges = ranges
+
+                class DummyResponse:
+                    def execute(self):
+                        return {
+                            "valueRanges": [
+                                {"values": [["a", "b"], ["c", "d"]]},
+                                {"values": [["e", "f"]]},
+                            ]
+                        }
+
+                return DummyResponse()
+
+        class DummySpreadsheets:
+            def values(self):
+                return DummyValues()
+
+        class DummySheetsClient:
+            def __init__(self):
+                self.service = type(
+                    "Service", (), {"spreadsheets": lambda self: DummySpreadsheets()}
+                )()
+
+            def get_spreadsheet_id(self, spreadsheet_key):
+                return "sheet-id"
+
+        client = DummySheetsClient()
+        result = __import__(
+            "src.google_services", fromlist=["GoogleSheetsClient"]
+        ).GoogleSheetsClient.batch_get_values(client, ["A1:B2", "C1:D1"])
+        self.assertEqual(result, [[["a", "b"], ["c", "d"]], [["e", "f"]]])
+
+    def test_build_match_day_reminder_message_div1(self):
+        message = build_match_day_reminder_message("div1", "https://example.com/form")
+        self.assertIn("# 試合当日になりました", message)
+        self.assertIn("ベンチ入り6名ルール", message)
+        self.assertIn("スタメンが3人vs4人の特別ルール", message)
+        self.assertIn("https://example.com/form", message)
+
+    def test_build_match_day_reminder_message_div2(self):
+        message = build_match_day_reminder_message("div2", "https://example.com/form")
+        self.assertIn("ベンチ入り6名ルール", message)
+        self.assertNotIn("スタメンが3人vs4人の特別ルール", message)
+
+    def test_send_match_day_reminders_for_today(self):
+        today = datetime.now().strftime("%Y/%m/%d")
+
+        class DummyChannel:
+            def __init__(self):
+                self.name = "g-2609-home-away"
+                self.category = type("Category", (), {"id": 123})()
+                self.sent = []
+
+            async def send(self, message):
+                self.sent.append(message)
+
+        class DummySheets:
+            def get_values(self, range_name, spreadsheet_key):
+                return [
+                    [
+                        "",
+                        "",
+                        "cid-home",
+                        "",
+                        "cid-away",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "OK",
+                        today,
+                        "",
+                    ],
+                    [
+                        "",
+                        "",
+                        "cid-home",
+                        "",
+                        "cid-away",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "NG",
+                        today,
+                        "",
+                    ],
+                ]
+
+        channel = DummyChannel()
+        bot = type(
+            "Bot",
+            (),
+            {
+                "guilds": [type("Guild", (), {"text_channels": [channel]})()],
+                "club_cid_map": {"home": "cid-home", "away": "cid-away"},
+                "club_cid_to_alias_map": {"cid-home": "home", "cid-away": "away"},
+                "sheets": DummySheets(),
+            },
+        )()
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "MATCH_RESULT_FORM_URL_DIV1": "https://example.com/form",
+                "LEAGUE_CURRENT_SEASON_FIRST_MONTH": "202609",
+                "LEAGUE_CURRENT_SEASON_LAST_MONTH": "202703",
+                "DISCORD_CATEGORY_ID_DIV1": "123",
+            },
+            clear=False,
+        ):
+            with mock.patch(
+                "src.jobs.daily_batch.get_active_category_ids",
+                return_value={"div1": {123}},
+            ):
+                import asyncio
+
+                asyncio.run(send_match_day_reminders(bot))
+
+        self.assertTrue(channel.sent)
+        self.assertIn("https://example.com/form", channel.sent[0])
+
+    def test_update_last_post_dates_for_match_channels_clears_when_status_is_not_adjusting(
+        self,
+    ):
+        class DummyChannel:
+            name = "g-2609-home-away"
+            category = type("Category", (), {"id": 123})()
+
+            async def history(self, limit=200, oldest_first=False):
+                yield type(
+                    "Message",
+                    (),
+                    {
+                        "author": type("Author", (), {"bot": False})(),
+                        "created_at": datetime(2026, 9, 29, 12, 0),
+                    },
+                )()
+
+        class DummySheets:
+            def __init__(self):
+                self.calls = []
+
+            def get_values(self, range_name, spreadsheet_key):
+                return [
+                    [
+                        "",
+                        "",
+                        "cid-home",
+                        "",
+                        "cid-away",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "確認済",
+                        "",
+                    ]
+                ]
+
+            def batch_update(self, updates, spreadsheet_key):
+                self.calls.append((updates, spreadsheet_key))
+
+        bot = type(
+            "Bot",
+            (),
+            {
+                "guilds": [type("Guild", (), {"text_channels": [DummyChannel()]})()],
+                "club_cid_map": {"home": "cid-home", "away": "cid-away"},
+                "sheets": DummySheets(),
+            },
+        )()
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "LEAGUE_CURRENT_SEASON_FIRST_MONTH": "202609",
+                "LEAGUE_CURRENT_SEASON_LAST_MONTH": "202703",
+            },
+            clear=False,
+        ):
+            with mock.patch(
+                "src.jobs.daily_batch.get_active_category_ids",
+                return_value={"div1": {123}},
+            ):
+                with mock.patch(
+                    "src.jobs.daily_batch.parse_match_channel",
+                    return_value={
+                        "division": "div1",
+                        "yymm": "2609",
+                        "home": "home",
+                        "away": "away",
+                    },
+                ):
+                    with mock.patch(
+                        "src.jobs.daily_batch.is_month_within_season",
+                        return_value=True,
+                    ):
+                        import asyncio
+
+                        asyncio.run(
+                            __import__(
+                                "src.jobs.daily_batch",
+                                fromlist=["update_last_post_dates_for_match_channels"],
+                            ).update_last_post_dates_for_match_channels(bot)
+                        )
+
+        self.assertIn(([("場所調整!AB1", [[""]])], "shared"), bot.sheets.calls)
+
+    def test_update_last_post_dates_for_match_channels_handles_mixed_statuses(self):
+        class DummyChannel:
+            def __init__(self, name, category_id):
+                self.name = name
+                self.category = type("Category", (), {"id": category_id})()
+
+            async def history(self, limit=200, oldest_first=False):
+                yield type(
+                    "Message",
+                    (),
+                    {
+                        "author": type("Author", (), {"bot": False})(),
+                        "created_at": datetime(2026, 9, 29, 12, 0),
+                    },
+                )()
+
+        class DummySheets:
+            def __init__(self):
+                self.calls = []
+
+            def get_values(self, range_name, spreadsheet_key):
+                return [
+                    [
+                        "",
+                        "",
+                        "cid-home1",
+                        "",
+                        "cid-away1",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "調整",
+                        "",
+                    ],
+                    [
+                        "",
+                        "",
+                        "cid-home2",
+                        "",
+                        "cid-away2",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "OK",
+                        "",
+                    ],
+                    [
+                        "",
+                        "",
+                        "cid-home3",
+                        "",
+                        "cid-away3",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "調整",
+                        "",
+                    ],
+                ]
+
+            def batch_update(self, updates, spreadsheet_key):
+                self.calls.append((updates, spreadsheet_key))
+
+        channels = [
+            DummyChannel("g-2609-home1-away1", 123),
+            DummyChannel("g-2609-home2-away2", 123),
+            DummyChannel("g-2609-home3-away3", 123),
+        ]
+        bot = type(
+            "Bot",
+            (),
+            {
+                "guilds": [type("Guild", (), {"text_channels": channels})()],
+                "club_cid_map": {
+                    "home1": "cid-home1",
+                    "away1": "cid-away1",
+                    "home2": "cid-home2",
+                    "away2": "cid-away2",
+                    "home3": "cid-home3",
+                    "away3": "cid-away3",
+                },
+                "sheets": DummySheets(),
+            },
+        )()
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "LEAGUE_CURRENT_SEASON_FIRST_MONTH": "202609",
+                "LEAGUE_CURRENT_SEASON_LAST_MONTH": "202703",
+            },
+            clear=False,
+        ):
+            with mock.patch(
+                "src.jobs.daily_batch.get_active_category_ids",
+                return_value={"div1": {123}},
+            ):
+                with mock.patch(
+                    "src.jobs.daily_batch.parse_match_channel",
+                    side_effect=[
+                        {
+                            "division": "div1",
+                            "yymm": "2609",
+                            "home": "home1",
+                            "away": "away1",
+                        },
+                        {
+                            "division": "div1",
+                            "yymm": "2609",
+                            "home": "home2",
+                            "away": "away2",
+                        },
+                        {
+                            "division": "div1",
+                            "yymm": "2609",
+                            "home": "home3",
+                            "away": "away3",
+                        },
+                    ],
+                ):
+                    with mock.patch(
+                        "src.jobs.daily_batch.is_month_within_season",
+                        return_value=True,
+                    ):
+                        import asyncio
+
+                        asyncio.run(
+                            __import__(
+                                "src.jobs.daily_batch",
+                                fromlist=["update_last_post_dates_for_match_channels"],
+                            ).update_last_post_dates_for_match_channels(bot)
+                        )
+
+        self.assertEqual(len(bot.sheets.calls), 1)
+        updates, spreadsheet_key = bot.sheets.calls[0]
+        self.assertEqual(spreadsheet_key, "shared")
+        self.assertEqual(
+            [range_name for range_name, _ in updates],
+            ["場所調整!AB1", "場所調整!AB2", "場所調整!AB3"],
+        )
+        self.assertEqual(
+            [values for _, values in updates],
+            [[["0日前"]], [[""]], [["0日前"]]],
+        )
+
+    def test_is_reminder_target_channel_accepts_cached_rows(self):
+        class DummySheets:
+            def __init__(self):
+                self.calls = []
+
+            def get_values(self, range_name, spreadsheet_key):
+                self.calls.append((range_name, spreadsheet_key))
+                return [
+                    [
+                        "",
+                        "",
+                        "cid-home",
+                        "",
+                        "cid-away",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "調整",
+                        "",
+                    ]
+                ]
+
+        bot = type(
+            "Bot",
+            (),
+            {
+                "club_cid_map": {"home": "cid-home", "away": "cid-away"},
+                "sheets": DummySheets(),
+            },
+        )()
+        self.assertTrue(
+            is_reminder_target_channel(
+                bot,
+                "g-2609-home-away",
+                [
+                    [
+                        "",
+                        "",
+                        "cid-home",
+                        "",
+                        "cid-away",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "調整",
+                        "",
+                    ]
+                ],
+            )
+        )
+        self.assertEqual(bot.sheets.calls, [])
 
     def test_is_reminder_target_channel(self):
         class DummySheets:

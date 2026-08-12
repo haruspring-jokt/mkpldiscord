@@ -10,7 +10,11 @@ from discord.ext import commands
 from src.utils import parse_match_channel
 
 
-def is_reminder_target_channel(bot: commands.Bot, channel_name: str) -> bool:
+def is_reminder_target_channel(
+    bot: commands.Bot,
+    channel_name: str,
+    shared_rows: list[list[str]] | None = None,
+) -> bool:
     """チャンネル名から共有シートの対象レコードを特定し、L列が '調整' のときだけ true を返す。"""
     metadata = parse_match_channel(channel_name)
     if not metadata:
@@ -23,7 +27,11 @@ def is_reminder_target_channel(bot: commands.Bot, channel_name: str) -> bool:
     if not home_cid or not away_cid:
         return False
 
-    values = bot.sheets.get_values("場所調整!A1:Z2000", "shared")
+    values = (
+        shared_rows
+        if shared_rows is not None
+        else bot.sheets.get_values("場所調整!A1:Z200", "shared")
+    )
     for row in values:
         if len(row) <= 4:
             continue

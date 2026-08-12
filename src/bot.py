@@ -201,8 +201,11 @@ class LeagueBot(commands.Bot):
         await send_25th_reminders(self, self.club_alias_map)
 
     async def send_daily_batch_job(self) -> None:
-        """最終非 bot 投稿日の更新ジョブ。"""
+        """本日試合のリマインドと最終非 bot 投稿日の更新ジョブ。"""
         await update_last_post_dates_for_match_channels(self)
+        from src.jobs.daily_batch import send_match_day_reminders
+
+        await send_match_day_reminders(self)
 
     async def schedule_game_channel_create_batch(self) -> None:
         """毎月1日に2ヶ月後の試合チャンネルを作成するジョブを登録します。"""

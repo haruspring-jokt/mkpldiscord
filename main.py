@@ -4,7 +4,16 @@
 """
 
 import os
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r".*pkg_resources is deprecated as an API.*",
+    category=UserWarning,
+)
+
 from dotenv import load_dotenv
+
 from src.bot import LeagueBot
 
 

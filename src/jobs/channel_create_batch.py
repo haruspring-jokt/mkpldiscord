@@ -50,11 +50,21 @@ async def create_match_channels_for_target_month(bot: commands.Bot) -> None:
         print("[CHANNEL-BATCH] disabled")
         return
 
+    dry_run = os.getenv("REMINDER_DRY_RUN", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if dry_run:
+        print("[CHANNEL-BATCH-DRY] dry run enabled; no Discord channel will be created")
+
     target_yymm = get_target_yymm_for_channel_creation(datetime.now())
     print(f"[CHANNEL-BATCH] start target_yymm={target_yymm}")
 
     try:
-        values = bot.sheets.get_values("場所調整!A1:Z2000", "shared")
+        values = bot.sheets.batch_get_values(["場所調整!A1:Z200"], "shared")
+        values = values[0] if values else []
     except Exception as exc:
         print(f"[CHANNEL-BATCH] failed to read shared sheet: {exc}")
         return
@@ -152,6 +162,18 @@ async def create_match_channels_for_target_month(bot: commands.Bot) -> None:
                 ):
                     category = candidate
                     break
+
+            if dry_run:
+                category_label = (
+                    category.name if category is not None else "<not found>"
+                )
+                category_id = category.id if category is not None else None
+                print(
+                    "[CHANNEL-BATCH-DRY] would create "
+                    f"channel='{channel_name}' "
+                    f"category_name='{category_label}' "
+                )
+                continue
 
             try:
                 created = await guild.create_text_channel(
