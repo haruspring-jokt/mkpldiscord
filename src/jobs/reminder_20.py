@@ -28,6 +28,7 @@ async def send_20th_reminders(bot: commands.Bot, alias_to_role: dict[str, str]) 
 
     season_first_month = os.getenv("LEAGUE_CURRENT_SEASON_FIRST_MONTH", "").strip()
     season_last_month = os.getenv("LEAGUE_CURRENT_SEASON_LAST_MONTH", "").strip()
+    shared_rows = bot.sheets.get_values("場所調整!A1:Z200", "shared")
 
     for guild in bot.guilds:
         for channel in guild.text_channels:
@@ -40,7 +41,7 @@ async def send_20th_reminders(bot: commands.Bot, alias_to_role: dict[str, str]) 
                 continue
             if metadata["yymm"] not in target_yymms:
                 continue
-            if not is_reminder_target_channel(bot, channel.name):
+            if not is_reminder_target_channel(bot, channel.name, shared_rows):
                 continue
             home = metadata["home"]
             away = metadata["away"]

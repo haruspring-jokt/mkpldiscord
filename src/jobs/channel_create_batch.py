@@ -63,7 +63,8 @@ async def create_match_channels_for_target_month(bot: commands.Bot) -> None:
     print(f"[CHANNEL-BATCH] start target_yymm={target_yymm}")
 
     try:
-        values = bot.sheets.get_values("場所調整!A1:Z2000", "shared")
+        values = bot.sheets.batch_get_values(["場所調整!A1:Z200"], "shared")
+        values = values[0] if values else []
     except Exception as exc:
         print(f"[CHANNEL-BATCH] failed to read shared sheet: {exc}")
         return

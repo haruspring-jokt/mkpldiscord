@@ -97,6 +97,49 @@ class GoogleSheetsClient:
             .execute()
         )
 
+    def batch_update(
+        self,
+        updates: list[tuple[str, list[list[Any]]]],
+        spreadsheet_key: str = "default",
+    ) -> dict[str, Any]:
+        """複数のセル範囲を一括で更新します。"""
+        if not updates:
+            return {}
+        spreadsheet_id = self.get_spreadsheet_id(spreadsheet_key)
+        body = {
+            "valueInputOption": "USER_ENTERED",
+            "data": [
+                {"range": range_name, "values": values}
+                for range_name, values in updates
+            ],
+        }
+        return (
+            self.service.spreadsheets()
+            .values()
+            .batchUpdate(spreadsheetId=spreadsheet_id, body=body)
+            .execute()
+        )
+
+    def batch_get_values(
+        self,
+        ranges: list[str],
+        spreadsheet_key: str = "default",
+    ) -> list[list[Any]]:
+        """複数範囲を一括取得します。1 件でも list に格納して返します。"""
+        if not ranges:
+            return []
+        spreadsheet_id = self.get_spreadsheet_id(spreadsheet_key)
+        result = (
+            self.service.spreadsheets()
+            .values()
+            .batchGet(spreadsheetId=spreadsheet_id, ranges=ranges)
+            .execute()
+        )
+        values_list: list[list[Any]] = []
+        for value_range in result.get("valueRanges", []):
+            values_list.append(value_range.get("values", []))
+        return values_list
+
     def get_values(
         self,
         range_name: str,

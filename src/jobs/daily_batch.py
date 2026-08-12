@@ -6,12 +6,19 @@ from datetime import datetime
 from discord.ext import commands
 
 from src.jobs.shared import get_active_category_ids
-from src.utils import find_location_row, is_month_within_season, parse_match_channel
+from src.utils import is_month_within_season, parse_match_channel
 
 
-def format_sheet_date(dt: datetime) -> str:
-    """Google Sheets へ書き込む日付文字列を返します。"""
-    return dt.strftime("%Y/%m/%d")
+def format_sheet_date(dt: datetime, now: datetime | None = None) -> str:
+    """現在日時との差分を「◯日前」形式で返します。5日以上は「5日以上前」と表記します。"""
+    if now is None:
+        now = datetime.now()
+    delta_days = (now.date() - dt.date()).days
+    if delta_days <= 0:
+        return "0日前"
+    if delta_days >= 5:
+        return "5日以上前"
+    return f"{delta_days}日前"
 
 
 async def update_last_post_dates_for_match_channels(
@@ -32,6 +39,19 @@ async def update_last_post_dates_for_match_channels(
     print(
         f"[DAILY-BATCH] start season={season_first_month}..{season_last_month} categories={active_categories}"
     )
+
+    location_rows = bot.sheets.get_values("場所調整!A1:Z200", "shared")
+    location_index: dict[tuple[str, str], tuple[int, list[str]]] = {}
+    for row_idx, row in enumerate(location_rows, start=1):
+        if len(row) <= 4:
+            continue
+        home_cid = row[2].strip()
+        away_cid = row[4].strip()
+        if not home_cid or not away_cid:
+            continue
+        location_index[(home_cid, away_cid)] = (row_idx, row)
+
+    update_requests: list[tuple[str, list[list[str]]]] = []
 
     for guild in bot.guilds:
         if not guild.text_channels:
@@ -63,10 +83,19 @@ async def update_last_post_dates_for_match_channels(
                 )
                 continue
 
-            row_idx = find_location_row(bot.sheets, home_cid, away_cid)
-            if row_idx is None:
+            row_info = location_index.get((home_cid, away_cid))
+            if row_info is None:
                 print(
                     f"[DAILY-BATCH] no shared-sheet row found for {channel.name} ({home_cid} vs {away_cid})"
+                )
+                continue
+
+            row_idx, row = row_info
+            status_value = row[11].strip() if len(row) > 11 else ""
+            if status_value != "調整":
+                update_requests.append((f"場所調整!AB{row_idx}", [[""]]))
+                print(
+                    f"[DAILY-BATCH] cleared stale AB{row_idx} for {channel.name} because status is '{status_value}'"
                 )
                 continue
 
@@ -90,14 +119,16 @@ async def update_last_post_dates_for_match_channels(
                 continue
 
             sheet_date = format_sheet_date(last_message.created_at.astimezone())
-            try:
-                bot.sheets.update_range(
-                    f"場所調整!AB{row_idx}", [[sheet_date]], "shared"
-                )
-                print(
-                    f"[DAILY-BATCH] updated {channel.name} -> AB{row_idx} = {sheet_date} (last non-bot post by {last_message.author})"
-                )
-            except Exception as exc:
-                print(
-                    f"[DAILY-BATCH] failed to update {channel.name} AB{row_idx}: {exc}"
-                )
+            update_requests.append((f"場所調整!AB{row_idx}", [[sheet_date]]))
+            print(
+                f"[DAILY-BATCH] queued update for {channel.name} -> AB{row_idx} = {sheet_date}"
+            )
+
+    if update_requests:
+        try:
+            bot.sheets.batch_update(update_requests, "shared")
+            print(
+                f"[DAILY-BATCH] sent {len(update_requests)} sheet updates in one batch"
+            )
+        except Exception as exc:
+            print(f"[DAILY-BATCH] failed to batch-update sheet values: {exc}")
