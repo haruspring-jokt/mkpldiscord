@@ -280,9 +280,9 @@ class LeagueBot(commands.Bot):
 
     def _aps_job_listener(self, event) -> None:
         """APScheduler のジョブ実行イベントを受け取りログ出力する。"""
-        job_id = getattr(event, "job_id", "unknown")
-        job = self.scheduler.get_job(job_id) if job_id != "unknown" else None
-        triggered_at = datetime.now(ZoneInfo("Asia/Tokyo"))
+        try:
+            job_id = getattr(event, "job_id", "unknown")
+            triggered_at = datetime.now(ZoneInfo("Asia/Tokyo"))
             if getattr(event, "exception", None):
                 print(f"[APS] job {job_id} raised exception: {event.exception}")
                 asyncio.create_task(
