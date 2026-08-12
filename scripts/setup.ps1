@@ -43,8 +43,8 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "Installing requirements..."
 .\.venv\Scripts\Activate.ps1
-pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install --upgrade pip "setuptools<81"
+python -m pip install -r requirements.txt
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Failed to install Python dependencies."
     exit 1
