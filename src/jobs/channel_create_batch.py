@@ -11,6 +11,7 @@ from src.utils import (
     build_match_channel_name,
     get_target_yymm_for_channel_creation,
     normalize_yymm_from_sheet_value,
+    post_bot_log,
 )
 
 
@@ -67,6 +68,15 @@ async def create_match_channels_for_target_month(bot: commands.Bot) -> None:
         values = values[0] if values else []
     except Exception as exc:
         print(f"[CHANNEL-BATCH] failed to read shared sheet: {exc}")
+        await post_bot_log(
+            bot,
+            "CHANNEL-BATCH",
+            "create_match_channels_for_target_month",
+            datetime.now(),
+            success=False,
+            context={"target_yymm": target_yymm},
+            exc=exc,
+        )
         return
 
     admin_role_id = int(os.getenv("ADMIN_ROLE_ID", "0") or "0")
@@ -184,3 +194,17 @@ async def create_match_channels_for_target_month(bot: commands.Bot) -> None:
                 print(f"[CHANNEL-BATCH] created {created.name} ({created.id})")
             except Exception as exc:
                 print(f"[CHANNEL-BATCH] failed to create {channel_name}: {exc}")
+                await post_bot_log(
+                    bot,
+                    "CHANNEL-BATCH",
+                    "create_match_channels_for_target_month",
+                    datetime.now(),
+                    success=False,
+                    context={
+                        "channel_name": channel_name,
+                        "target_yymm": target_yymm,
+                        "guild_id": guild.id,
+                        "category_id": getattr(category, "id", None),
+                    },
+                    exc=exc,
+                )

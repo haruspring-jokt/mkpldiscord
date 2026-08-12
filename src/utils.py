@@ -1,6 +1,9 @@
 """共通ユーティリティ関数。"""
 
+import json
+import os
 import re
+import traceback
 from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import quote
@@ -12,6 +15,79 @@ from src.google_services import GoogleSheetsClient
 
 # g-2406-ABC-XYZ や gc-2407-DEF-GHI だけでなく、g-202409-... のような 6 桁表記も受け付けます。
 CHANNEL_PATTERN = re.compile(r"^(gc?)-(?P<yymm>\d{4}|\d{6})-(?P<rest>.+)$")
+
+
+def build_bot_log_content(
+    category: str,
+    operation: str,
+    triggered_at: datetime,
+    *,
+    success: bool,
+    context: dict[str, Any] | None = None,
+    exc: BaseException | None = None,
+) -> str:
+    """BOT_LOG_CHANNEL_ID へ送るログ本文を生成します。"""
+    lines = [
+        f"[{category}] {'SUCCESS' if success else 'ERROR'}",
+        f"operation: {operation}",
+        f"triggered_at: {triggered_at.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"iso_triggered_at: {triggered_at.isoformat(timespec='seconds')}",
+    ]
+    if context:
+        lines.append("context:")
+        lines.append(json.dumps(context, ensure_ascii=False, default=str, indent=2))
+    if not success:
+        lines.append("exception:")
+        if exc is not None:
+            lines.append(type(exc).__name__)
+            lines.append(str(exc))
+            lines.append("traceback:")
+            lines.append(
+                "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            )
+        else:
+            lines.append("No exception object available")
+    return "\n".join(lines)
+
+
+async def post_bot_log(
+    bot: Any,
+    category: str,
+    operation: str,
+    triggered_at: datetime | None = None,
+    *,
+    success: bool,
+    context: dict[str, Any] | None = None,
+    exc: BaseException | None = None,
+) -> None:
+    """BOT_LOG_CHANNEL_ID にログを送信します。チャネル未設定時は何もしません。"""
+    channel_id_raw = os.getenv("BOT_LOG_CHANNEL_ID", "").strip()
+    if not channel_id_raw:
+        return
+    try:
+        channel_id = int(channel_id_raw)
+    except ValueError:
+        print(f"[BOT-LOG] invalid BOT_LOG_CHANNEL_ID: {channel_id_raw!r}")
+        return
+
+    channel = bot.get_channel(channel_id) if hasattr(bot, "get_channel") else None
+    if channel is None:
+        return
+
+    message = build_bot_log_content(
+        category,
+        operation,
+        triggered_at or datetime.now(ZoneInfo("Asia/Tokyo")),
+        success=success,
+        context=context,
+        exc=exc,
+    )
+    if len(message) > 1800:
+        message = message[:1800] + "\n... (truncated)"
+    try:
+        await channel.send(message)
+    except Exception as log_exc:
+        print(f"[BOT-LOG] failed to post to channel {channel_id}: {log_exc}")
 
 
 def _normalize_month_code(code: str) -> int:

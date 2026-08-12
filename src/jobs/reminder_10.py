@@ -11,6 +11,7 @@ from src.utils import (
     get_target_month_codes,
     is_month_within_season,
     parse_match_channel,
+    post_bot_log,
 )
 
 
@@ -69,4 +70,19 @@ async def send_10th_reminders(bot: commands.Bot, alias_to_role: dict[str, str]) 
                 except Exception as exc:
                     print(
                         f"[REMINDER] failed to send reminder to {channel.name} ({channel.id}): {exc}"
+                    )
+                    await post_bot_log(
+                        bot,
+                        "REMINDER",
+                        "send_10th_reminders",
+                        datetime.now(),
+                        success=False,
+                        context={
+                            "channel_name": channel.name,
+                            "channel_id": channel.id,
+                            "home": home,
+                            "away": away,
+                            "target_yymm": target_yymms,
+                        },
+                        exc=exc,
                     )
