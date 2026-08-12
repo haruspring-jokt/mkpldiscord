@@ -1,97 +1,118 @@
 # MKPL Discord Bot
 
-Google Cloud VM 上で常駐させる Discord ボットのプロジェクト骨組みです。
+モルック関東プライムリーグ向けの Discord 運営ボットです。
+試合チャンネル運用、定期リマインド、Google Sheets / Calendar 連携を行います。
 
-## 目的
+## 主な機能
 
-- 「モルック関東プライムリーグ」用 Discord サーバーで自動リマインドを送信
-- 試合日程・場所の確定受付・スプレッドシート/カレンダー連携
-- Google フォーム経由の試合結果受信に対する通知
-- 翌日 0:00 に暫定順位表を速報チャンネルに送信
+- 毎月 10 日 / 20 日 / 25 日の自動リマインド送信
+- 試合チャンネル作成時の初期案内メッセージ送信
+- 「@運営 日程」投稿からの日程確定モーダル表示
+- 日程確定内容の Google Sheets 反映
+- Google Calendar イベント作成
 
-## アーキテクチャ
+### これから実装する機能
 
-- Python で実装
-- Discord ボットは `discord.py` を使用
-- 内部データは `data/state.json` に JSON 形式で保存
-- Google API は Service Account を介して Sheets / Calendar / Storage にアクセス
-- GCP VM 上でもローカルでも動作確認できる構成
+- [ ] シーズン中の毎月1日に2ヶ月後に予定されている試合チャンネルを新規作成する
+- [ ] 試合があった日の22時に、暫定順位表を投稿する
+- [ ] 選手登録・変更・解除、および移籍・レンタル移籍申請に関する受付
+  - 申請する参加者はフォーラムに新規スレッドを作成
+  - スレッドが作成されたら、botが申請の種類を尋ね、参加者はそれに回答する
+  - botは申請種類に対応するモーダルを表示し、参加者がそれに入力、以降は人力で対応する
+- [ ] GoogleCloudのVM上にこのbotを常駐させる
 
-## 主要ファイル
+## モジュール構成
 
-- `main.py` - アプリ起動スクリプト
-- `src/bot.py` - Discord ボットとリマインド処理
-- `src/google_services.py` - Google Sheets/Calendar/Storage 連携
-- `src/storage.py` - JSON ベースの内部データ保存
-- `data/state.json` - ボットの内部状態
+- `main.py`: エントリーポイント
+- `src/bot.py`: Bot クラス、イベントフック、スケジューラ起動
+- `src/reminders.py`: スケジューラ駆動のリマインダー送信処理
+- `src/handlers.py`: メッセージ・コマンド・モーダル処理
+- `src/utils.py`: チャンネル解析やシート検索などの共通関数
+- `src/google_services.py`: Google API クライアント群
+- `src/storage.py`: JSON ベースの簡易ストレージ
+- `data/club.json`: クラブ略称とロール名 / CID の対応表
+- `data/state.json`: ボット内部状態
 
-## 試合日程確定モーダル
-
-試合チャンネルで「@運営 日程」と投稿すると、ボタン付きメッセージが表示されます。
-ボタンを押すとモーダル（日程・開始時間・場所）が開き、送信すると以下が自動で行われます。
-
-1. 管理スプレッドシート（`SPREADSHEET_DIV1_ID` / `SPREADSHEET_DIV2_ID`）の `Game` シートに日程(M列)・時間(N列)を書き込み
-   （F列=ホームCID、G列=アウェイCID で該当行を検索）
-2. 共通スプレッドシート（`SPREADSHEET_SHARED_ID`）の `場所調整` シートに場所(P列)を書き込み
-   （C列=ホームCID、E列=アウェイCID で該当行を検索）
-3. Google カレンダーにイベントを作成（`Game` シートの J列=節番号、C列=試合IDを使用）
-4. 試合チャンネルに日程登録完了メッセージを送信
-
-クラブ略称→CIDの対応は `data/club.json` の `cid` フィールドを使用します。
-リンク類（結果報告フォーム、日程ページ、調整用シート等）は `.env` の `MATCH_RESULT_FORM_URL_*` 等で設定してください。
-
-## セットアップ
+## セットアップ手順
 
 1. Python 3.11 以上をインストール
-2. 仮想環境を作成
+2. 仮想環境を作成して有効化
 
-```bash
+```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-3. Google Cloud サービスアカウントキーを作成し、`GOOGLE_APPLICATION_CREDENTIALS` 環境変数を設定
-4. `.env.example` をコピーして `.env` を作成し、必要な値を設定
+3. `.env.example` をコピーして `.env` を作成
 
-```bash
+```powershell
 copy .env.example .env
 ```
 
-5. 必要に応じてテストモードを有効にします。
+4. `.env` の値を設定
 
-```powershell
-$env:TEST_REMINDER = "1"
-python .\main.py
-```
+- `DISCORD_TOKEN`
+- `DISCORD_GUILD_ID`
+- `GOOGLE_APPLICATION_CREDENTIALS`
+- `SPREADSHEET_DIV1_ID`, `SPREADSHEET_DIV2_ID`, `SPREADSHEET_SHARED_ID`
+- `CALENDAR_ID`
+- `ADMIN_ROLE_ID`
+- 各種 URL（`MATCH_RESULT_FORM_URL_*`, `SCHEDULE_PAGE_URL_*`, `SHARED_SHEET_URL`）
 
-または `.env` に以下を追加して有効化できます。
-
-```text
-TEST_REMINDER=1
-```
-
-6. Discord Developer Portal でボットを作成し、`DISCORD_TOKEN` を設定
-
-## 実行方法
-
-```bash
-python main.py
-```
-
-## Google API の権限
-
-Service Account に以下のスコープ/権限を付与してください。
+5. Google サービスアカウントに権限付与
 
 - Google Sheets API
 - Google Calendar API
 - Google Cloud Storage
 
-Service Account を対象のスプレッドシート/カレンダーに共有する必要があります。
+対象のスプレッドシートとカレンダーに、サービスアカウントの閲覧 / 編集権限を付与してください。
 
-## GCP VM での運用
+## 実行方法
 
-- GCP VM に Python と依存パッケージをインストール
-- サービスアカウントキーを配置し、`GOOGLE_APPLICATION_CREDENTIALS` を設定
-- `python main.py` で起動
-- 永続的運用には `systemd` / Windows サービス / `tmux` / `screen` などを使用してください
+```powershell
+python .\main.py
+```
+
+## 開発時の動作確認手順
+
+### 1. 構文チェック
+
+```powershell
+python -m py_compile src\bot.py src\reminders.py src\handlers.py src\utils.py src\google_services.py
+```
+
+### 2. DRY RUN で送信を抑止して起動確認
+
+```powershell
+$env:REMINDER_DRY_RUN = "1"
+python .\main.py
+```
+
+### 3. 月次リマインダーのテスト実行
+
+```powershell
+$env:TEST_REMINDER = "1"
+$env:TEST_REMINDER_DATE = "now+30s"
+python .\main.py
+```
+
+### 4. Discord 上での操作確認
+
+1. 試合チャンネルで `@運営 日程` を投稿
+2. 表示されたボタンからモーダルを開く
+3. 日程、開始時間、場所を入力して送信
+4. Sheets 更新、Calendar 作成、完了メッセージ送信を確認
+
+## 日程確定モーダルの処理内容
+
+1. `Game` シートの M 列 / N 列に日程と開始時間を保存
+2. `場所調整` シートの P 列に会場を保存
+3. Google Calendar にイベントを作成
+4. チャンネルに完了メッセージを投稿
+
+## 運用メモ
+
+- 本番運用では `REMINDER_DRY_RUN=0` に戻してください。
+- VM 常駐は `systemd`、`tmux`、`screen` などを利用してください。
+- `.env` は機密情報を含むため、リポジトリ外で安全に管理してください。

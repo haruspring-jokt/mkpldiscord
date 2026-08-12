@@ -17,7 +17,9 @@ from src.utils import (
 )
 
 
-async def handle_message_commands(bot: "discord.ext.commands.Bot", message: discord.Message) -> None:
+async def handle_message_commands(
+    bot: "discord.ext.commands.Bot", message: discord.Message
+) -> None:
     """メッセージコマンドを処理します。"""
     if message.content.startswith("!status"):
         await message.channel.send("League bot is online.")
@@ -26,8 +28,9 @@ async def handle_message_commands(bot: "discord.ext.commands.Bot", message: disc
     await maybe_trigger_schedule_modal(bot, message)
 
 
-
-async def maybe_trigger_schedule_modal(bot: "discord.ext.commands.Bot", message: discord.Message) -> None:
+async def maybe_trigger_schedule_modal(
+    bot: "discord.ext.commands.Bot", message: discord.Message
+) -> None:
     """「@運営 日程」投稿を検知して日程確定モーダルの入り口を表示します。"""
     metadata = parse_match_channel(message.channel.name)
     if not metadata:
@@ -36,7 +39,9 @@ async def maybe_trigger_schedule_modal(bot: "discord.ext.commands.Bot", message:
         return
 
     admin_role_id = int(os.getenv("ADMIN_ROLE_ID", "0") or "0")
-    mentioned_admin = admin_role_id and any(role.id == admin_role_id for role in message.role_mentions)
+    mentioned_admin = admin_role_id and any(
+        role.id == admin_role_id for role in message.role_mentions
+    )
     if not mentioned_admin and "@運営" not in message.content:
         return
 
@@ -44,7 +49,9 @@ async def maybe_trigger_schedule_modal(bot: "discord.ext.commands.Bot", message:
     await message.channel.send("下のボタンから試合日程を入力してください。", view=view)
 
 
-async def handle_guild_channel_create(bot: "discord.ext.commands.Bot", channel: discord.abc.GuildChannel) -> None:
+async def handle_guild_channel_create(
+    bot: "discord.ext.commands.Bot", channel: discord.abc.GuildChannel
+) -> None:
     """新規チャンネル作成時のハンドラ。試合チャンネルなら日程調整メッセージを送信する。"""
     if not isinstance(channel, discord.TextChannel):
         return
@@ -59,9 +66,37 @@ async def handle_guild_channel_create(bot: "discord.ext.commands.Bot", channel: 
     away = metadata["away"]
     dry_run = os.getenv("REMINDER_DRY_RUN", "0") in ("1", "true", "True")
 
+    # 該当する試合の節の取得
+    # チャンネル名のホーム略称からホームCID、アウェイ略称からアウェイCIDを取得し、管理スプレッドシートのGameシートから該当する試合行を検索する
+    home_cid = bot.club_cid_map.get(home.casefold())
+    away_cid = bot.club_cid_map.get(away.casefold())
+    if not home_cid or not away_cid:
+        print(
+            f"[CHANNEL] could not find CIDs for home={home} or away={away} in channel {channel.name}"
+        )
+        return
+    # 管理スプレッドシートのGameシートから該当する試合行を検索
+    sheets: GoogleSheetsClient = bot.sheets
+    game_row = find_game_row(sheets, metadata["division"], home_cid, away_cid)
+    if not game_row:
+        print(
+            f"[CHANNEL] could not find game row for home_cid={home_cid}, away_cid={away_cid} in channel {channel.name}"
+        )
+        return
+    # 節の取得
+    row_idx, row_values = game_row
+    round_raw = row_values[9] if len(row_values) > 9 else None
+    # 節番号の整形
+    round_no = (
+        str(round_raw).strip() if (round_raw not in (None, False, "FALSE", "")) else ""
+    )
+
+    # メッセージ本文の作成
     message = (
         "# 日程調整をお願いします\n"
+        f":regional_indicator_s: シーズン：{os.getenv("LEAGUE_CURRENT_SEASON")}\n"
         f":calendar_spiral: 対戦月：{yy}年{mm}月\n"
+        f":soccer: 試合節： {round_no}\n"
         f":home: ホーム： {find_club_role_mention(channel.guild, home, bot.club_alias_map)}\n"
         f":away: アウェイ： {find_club_role_mention(channel.guild, away, bot.club_alias_map)}\n\n"
         "## :pencil:調整方法について\n"
@@ -78,14 +113,20 @@ async def handle_guild_channel_create(bot: "discord.ext.commands.Bot", channel: 
     )
 
     if dry_run:
-        print(f"[CHANNEL-DRY] would send to {channel.name} ({channel.id}): {message[:300].replace('\n',' ')}")
+        print(
+            f"[CHANNEL-DRY] would send to {channel.name} ({channel.id}): {message[:300].replace('\n',' ')}"
+        )
         return
 
     try:
         await channel.send(message)
-        print(f"[CHANNEL] sent initial schedule message to {channel.name} ({channel.id})")
+        print(
+            f"[CHANNEL] sent initial schedule message to {channel.name} ({channel.id})"
+        )
     except Exception as exc:
-        print(f"[CHANNEL] failed to send message to {channel.name} ({channel.id}): {exc}")
+        print(
+            f"[CHANNEL] failed to send message to {channel.name} ({channel.id}): {exc}"
+        )
 
 
 async def process_schedule_submission(
@@ -116,12 +157,13 @@ async def process_schedule_submission(
         return
 
     try:
-        start_dt = datetime.strptime(f"{date_str} {time_str}", "%Y/%m/%d %H:%M").replace(
-            tzinfo=ZoneInfo("Asia/Tokyo")
-        )
+        start_dt = datetime.strptime(
+            f"{date_str} {time_str}", "%Y/%m/%d %H:%M"
+        ).replace(tzinfo=ZoneInfo("Asia/Tokyo"))
     except ValueError:
         await interaction.followup.send(
-            "日程または開始時間の形式が正しくありません（例: 2026/09/06, 16:00）。", ephemeral=True
+            "日程または開始時間の形式が正しくありません（例: 2026/09/06, 16:00）。",
+            ephemeral=True,
         )
         return
     end_dt = start_dt + timedelta(hours=2)
@@ -129,14 +171,21 @@ async def process_schedule_submission(
     # 1. 管理スプレッドシート(Game シート)へ日程・時間を書き込む
     game_row = find_game_row(sheets, division, home_cid, away_cid)
     if not game_row:
-        await interaction.followup.send("管理スプレッドシートに該当する試合行が見つかりませんでした。", ephemeral=True)
+        await interaction.followup.send(
+            "管理スプレッドシートに該当する試合行が見つかりませんでした。",
+            ephemeral=True,
+        )
         return
     row_idx, row_values = game_row
     try:
-        sheets.update_range(f"Game!M{row_idx}:N{row_idx}", [[date_str, time_str]], division)
+        sheets.update_range(
+            f"Game!M{row_idx}:N{row_idx}", [[date_str, time_str]], division
+        )
     except Exception as exc:
         print(f"[SCHEDULE] failed to update Game sheet: {exc}")
-        await interaction.followup.send("管理スプレッドシートへの書き込みに失敗しました。", ephemeral=True)
+        await interaction.followup.send(
+            "管理スプレッドシートへの書き込みに失敗しました。", ephemeral=True
+        )
         return
 
     # 2. 日程調整シート(場所調整)へ場所を書き込む
@@ -151,7 +200,9 @@ async def process_schedule_submission(
 
     # 3. Google カレンダーへの登録
     round_raw = row_values[9] if len(row_values) > 9 else None
-    round_no = str(round_raw).strip() if (round_raw not in (None, False, "FALSE", "")) else ""
+    round_no = (
+        str(round_raw).strip() if (round_raw not in (None, False, "FALSE", "")) else ""
+    )
     match_id = str(row_values[2]).strip() if len(row_values) > 2 else ""
     league_label = os.getenv(f"LEAGUE_LABEL_{division.upper()}", "")
     event_prefix = os.getenv(f"LEAGUE_EVENT_PREFIX_{division.upper()}", "")
@@ -159,7 +210,9 @@ async def process_schedule_submission(
     away_name = bot.club_alias_map.get(away_alias.casefold(), away_alias)
     event_name = f"{event_prefix} {league_label} 第{round_no}節 {home_name} - {away_name}".strip()
 
-    match_site_base = os.getenv("MATCH_SITE_BASE_URL", "https://molkkyprime.com/match?gid=")
+    match_site_base = os.getenv(
+        "MATCH_SITE_BASE_URL", "https://molkkyprime.com/match?gid="
+    )
     details_text = f"試合情報: {match_site_base}{match_id}"
     calendar_link = build_gcal_link(event_name, start_dt, end_dt, details_text)
 
@@ -198,9 +251,12 @@ async def process_schedule_submission(
 
     dry_run = os.getenv("REMINDER_DRY_RUN", "0") in ("1", "true", "True")
     if dry_run:
-        print(f"[SCHEDULE-DRY] would send completion message to channel {channel}: {completion_message[:300]}")
+        print(
+            f"[SCHEDULE-DRY] would send completion message to channel {channel}: {completion_message[:300]}"
+        )
         await interaction.followup.send(
-            "（DRY RUN）日程登録処理が完了しました。チャンネルへの送信はスキップされました。", ephemeral=True
+            "（DRY RUN）日程登録処理が完了しました。チャンネルへの送信はスキップされました。",
+            ephemeral=True,
         )
         return
 
@@ -211,7 +267,9 @@ async def process_schedule_submission(
 class ScheduleModal(ui.Modal):
     """試合日程確定用モーダル。"""
 
-    def __init__(self, bot: "discord.ext.commands.Bot", metadata: dict[str, str]) -> None:
+    def __init__(
+        self, bot: "discord.ext.commands.Bot", metadata: dict[str, str]
+    ) -> None:
         super().__init__(title="試合日程の確定")
         self.bot = bot
         self.metadata = metadata
@@ -253,11 +311,15 @@ class ScheduleModal(ui.Modal):
 class ScheduleTriggerView(ui.View):
     """日程確定モーダルを開くためのボタンを表示する View。"""
 
-    def __init__(self, bot: "discord.ext.commands.Bot", metadata: dict[str, str]) -> None:
+    def __init__(
+        self, bot: "discord.ext.commands.Bot", metadata: dict[str, str]
+    ) -> None:
         super().__init__(timeout=None)
         self.bot = bot
         self.metadata = metadata
 
     @ui.button(label="日程を入力する", style=discord.ButtonStyle.primary)
-    async def open_modal(self, interaction: discord.Interaction, button: ui.Button) -> None:
+    async def open_modal(
+        self, interaction: discord.Interaction, button: ui.Button
+    ) -> None:
         await interaction.response.send_modal(ScheduleModal(self.bot, self.metadata))

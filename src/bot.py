@@ -18,9 +18,17 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 from discord.ext import commands
 
-from src.google_services import GoogleCalendarClient, GoogleSheetsClient, GoogleStorageClient
+from src.google_services import (
+    GoogleCalendarClient,
+    GoogleSheetsClient,
+    GoogleStorageClient,
+)
 from src.storage import JsonStorage
-from src.reminders import send_monthly_reminders, send_20th_reminders, send_25th_reminders
+from src.reminders import (
+    send_monthly_reminders,
+    send_20th_reminders,
+    send_25th_reminders,
+)
 from src.handlers import handle_message_commands, handle_guild_channel_create
 
 
@@ -80,7 +88,9 @@ class LeagueBot(commands.Bot):
         if not self._scheduler_started:
             try:
                 self.scheduler.start()
-                self.scheduler.add_listener(self._aps_job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
+                self.scheduler.add_listener(
+                    self._aps_job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR
+                )
                 self._scheduler_started = True
                 print("[SCHED] AsyncIOScheduler started")
             except Exception as exc:
@@ -145,7 +155,9 @@ class LeagueBot(commands.Bot):
                     else:
                         target = datetime.fromisoformat(target_date)
                 except Exception as exc:
-                    print(f"[TEST_REMINDER] invalid TEST_REMINDER_DATE '{target_date}': {exc}")
+                    print(
+                        f"[TEST_REMINDER] invalid TEST_REMINDER_DATE '{target_date}': {exc}"
+                    )
                     target = now.replace(hour=22, minute=0, second=0, microsecond=0)
             else:
                 target = now.replace(hour=22, minute=0, second=0, microsecond=0)
@@ -158,7 +170,9 @@ class LeagueBot(commands.Bot):
                 target = target.replace(year=year, month=month, day=11)
             else:
                 target = target.replace(day=11)
-            print(f"[TEST_REMINDER] scheduling one-time reminder for {target.isoformat()}")
+            print(
+                f"[TEST_REMINDER] scheduling one-time reminder for {target.isoformat()}"
+            )
             self.scheduler.add_job(
                 self.send_monthly_reminders_job,
                 "date",
@@ -191,11 +205,12 @@ class LeagueBot(commands.Bot):
             if getattr(event, "exception", None):
                 print(f"[APS] job {event.job_id} raised exception: {event.exception}")
             else:
-                print(f"[APS] job {event.job_id} executed successfully at {datetime.now().isoformat()}")
+                print(
+                    f"[APS] job {event.job_id} executed successfully at {datetime.now().isoformat()}"
+                )
         except Exception as exc:
             print(f"[APS] job listener error: {exc}")
 
     async def on_guild_channel_create(self, channel: discord.abc.GuildChannel) -> None:
         """新規チャンネル作成時のハンドラ。"""
         await handle_guild_channel_create(self, channel)
-

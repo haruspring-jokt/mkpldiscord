@@ -26,11 +26,14 @@ def parse_match_channel(channel_name: str) -> dict[str, str] | None:
     if "-" not in rest:
         return None
     home, away = rest.rsplit("-", 1)
-    division = "div1" if prefix == "g" else "div2"
+    # g- で始まるチャンネルは div1、gc- で始まるチャンネルは div2 それ以外は空文字
+    division = "div1" if prefix == "g" else "div2" if prefix == "gc" else ""
     return {"yymm": yymm, "home": home, "away": away, "division": division}
 
 
-def find_club_role_mention(guild: discord.Guild, alias: str, alias_to_role: dict[str, str]) -> str:
+def find_club_role_mention(
+    guild: discord.Guild, alias: str, alias_to_role: dict[str, str]
+) -> str:
     """略称からクラブロールを検索し、メンション文字列を返します。"""
     role_name = alias_to_role.get(alias.casefold(), alias)
     for role in guild.roles:
@@ -39,7 +42,12 @@ def find_club_role_mention(guild: discord.Guild, alias: str, alias_to_role: dict
     return f"@{role_name}"
 
 
-def format_match_reminder(guild: discord.Guild, home_alias: str, away_alias: str, alias_to_role: dict[str, str]) -> str:
+def format_match_reminder(
+    guild: discord.Guild,
+    home_alias: str,
+    away_alias: str,
+    alias_to_role: dict[str, str],
+) -> str:
     """リマインドメッセージ本文を作成します。"""
     home_mention = find_club_role_mention(guild, home_alias, alias_to_role)
     away_mention = find_club_role_mention(guild, away_alias, alias_to_role)
@@ -57,7 +65,9 @@ def get_target_month_codes(now: datetime) -> list[str]:
     return [f"{str(next_year)[2:]}{next_month:02d}"]
 
 
-def find_game_row(sheets: GoogleSheetsClient, division: str, home_cid: str, away_cid: str) -> tuple[int, list[Any]] | None:
+def find_game_row(
+    sheets: GoogleSheetsClient, division: str, home_cid: str, away_cid: str
+) -> tuple[int, list[Any]] | None:
     """管理スプレッドシートの Game シートから該当する試合行を検索します。"""
     values = sheets.get_values("Game!A1:O2000", division)
     for idx, row in enumerate(values, start=1):
@@ -68,7 +78,9 @@ def find_game_row(sheets: GoogleSheetsClient, division: str, home_cid: str, away
     return None
 
 
-def find_location_row(sheets: GoogleSheetsClient, home_cid: str, away_cid: str) -> int | None:
+def find_location_row(
+    sheets: GoogleSheetsClient, home_cid: str, away_cid: str
+) -> int | None:
     """場所調整シートから該当する試合行を検索します。"""
     values = sheets.get_values("場所調整!A1:P2000", "shared")
     for idx, row in enumerate(values, start=1):
@@ -79,8 +91,11 @@ def find_location_row(sheets: GoogleSheetsClient, home_cid: str, away_cid: str) 
     return None
 
 
-def build_gcal_link(event_name: str, start_dt: datetime, end_dt: datetime, details_text: str) -> str:
+def build_gcal_link(
+    event_name: str, start_dt: datetime, end_dt: datetime, details_text: str
+) -> str:
     """Google カレンダーのイベント作成リンクを生成します。"""
+
     def to_utc_stamp(dt: datetime) -> str:
         return dt.astimezone(ZoneInfo("UTC")).strftime("%Y%m%dT%H%M%SZ")
 

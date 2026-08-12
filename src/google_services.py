@@ -22,7 +22,9 @@ def _get_credentials() -> service_account.Credentials:
     key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     if not key_path:
         raise RuntimeError("GOOGLE_APPLICATION_CREDENTIALS is required")
-    return service_account.Credentials.from_service_account_file(key_path, scopes=SCOPES)
+    return service_account.Credentials.from_service_account_file(
+        key_path, scopes=SCOPES
+    )
 
 
 class GoogleSheetsClient:
@@ -30,7 +32,9 @@ class GoogleSheetsClient:
 
     def __init__(self):
         credentials = _get_credentials()
-        self.service = build("sheets", "v4", credentials=credentials, cache_discovery=False)
+        self.service = build(
+            "sheets", "v4", credentials=credentials, cache_discovery=False
+        )
         self.spreadsheet_ids = {
             "div1": os.getenv("SPREADSHEET_DIV1_ID"),
             "div2": os.getenv("SPREADSHEET_DIV2_ID"),
@@ -109,13 +113,14 @@ class GoogleSheetsClient:
         return result.get("values", [])
 
 
-
 class GoogleCalendarClient:
     """指定したカレンダーにイベントを作成するクライアント。"""
 
     def __init__(self):
         credentials = _get_credentials()
-        self.service = build("calendar", "v3", credentials=credentials, cache_discovery=False)
+        self.service = build(
+            "calendar", "v3", credentials=credentials, cache_discovery=False
+        )
         self.calendar_id = os.getenv("CALENDAR_ID")
         if not self.calendar_id:
             raise RuntimeError("CALENDAR_ID is required")
@@ -141,7 +146,11 @@ class GoogleCalendarClient:
             event["location"] = location
         if color_id:
             event["colorId"] = color_id
-        return self.service.events().insert(calendarId=self.calendar_id, body=event).execute()
+        return (
+            self.service.events()
+            .insert(calendarId=self.calendar_id, body=event)
+            .execute()
+        )
 
 
 class GoogleStorageClient:
