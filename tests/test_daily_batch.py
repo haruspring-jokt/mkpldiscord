@@ -12,6 +12,10 @@ from src.handlers.schedule import (
     get_round_number_from_game_row,
     get_round_number_from_location_row,
 )
+from src.jobs.daily_batch import (
+    build_match_day_reminder_message,
+    send_match_day_reminders,
+)
 from src.reminders import (
     format_sheet_date,
     get_active_category_ids,
@@ -101,6 +105,100 @@ class DailyBatchTests(unittest.TestCase):
             "src.google_services", fromlist=["GoogleSheetsClient"]
         ).GoogleSheetsClient.batch_get_values(client, ["A1:B2", "C1:D1"])
         self.assertEqual(result, [[["a", "b"], ["c", "d"]], [["e", "f"]]])
+
+    def test_build_match_day_reminder_message_div1(self):
+        message = build_match_day_reminder_message("div1", "https://example.com/form")
+        self.assertIn("# 試合当日になりました", message)
+        self.assertIn("ベンチ入り6名ルール", message)
+        self.assertIn("スタメンが3人vs4人の特別ルール", message)
+        self.assertIn("https://example.com/form", message)
+
+    def test_build_match_day_reminder_message_div2(self):
+        message = build_match_day_reminder_message("div2", "https://example.com/form")
+        self.assertIn("ベンチ入り6名ルール", message)
+        self.assertNotIn("スタメンが3人vs4人の特別ルール", message)
+
+    def test_send_match_day_reminders_for_today(self):
+        today = datetime.now().strftime("%Y/%m/%d")
+
+        class DummyChannel:
+            def __init__(self):
+                self.name = "g-2609-home-away"
+                self.category = type("Category", (), {"id": 123})()
+                self.sent = []
+
+            async def send(self, message):
+                self.sent.append(message)
+
+        class DummySheets:
+            def get_values(self, range_name, spreadsheet_key):
+                return [
+                    [
+                        "",
+                        "",
+                        "cid-home",
+                        "",
+                        "cid-away",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "OK",
+                        today,
+                        "",
+                    ],
+                    [
+                        "",
+                        "",
+                        "cid-home",
+                        "",
+                        "cid-away",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "NG",
+                        today,
+                        "",
+                    ],
+                ]
+
+        channel = DummyChannel()
+        bot = type(
+            "Bot",
+            (),
+            {
+                "guilds": [type("Guild", (), {"text_channels": [channel]})()],
+                "club_cid_map": {"home": "cid-home", "away": "cid-away"},
+                "club_cid_to_alias_map": {"cid-home": "home", "cid-away": "away"},
+                "sheets": DummySheets(),
+            },
+        )()
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "MATCH_RESULT_FORM_URL_DIV1": "https://example.com/form",
+                "LEAGUE_CURRENT_SEASON_FIRST_MONTH": "202609",
+                "LEAGUE_CURRENT_SEASON_LAST_MONTH": "202703",
+                "DISCORD_CATEGORY_ID_DIV1": "123",
+            },
+            clear=False,
+        ):
+            with mock.patch(
+                "src.jobs.daily_batch.get_active_category_ids",
+                return_value={"div1": {123}},
+            ):
+                import asyncio
+
+                asyncio.run(send_match_day_reminders(bot))
+
+        self.assertTrue(channel.sent)
+        self.assertIn("https://example.com/form", channel.sent[0])
 
     def test_update_last_post_dates_for_match_channels_clears_when_status_is_not_adjusting(
         self,
