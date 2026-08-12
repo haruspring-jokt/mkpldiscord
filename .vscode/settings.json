@@ -1,0 +1,13 @@
+{
+    "cSpell.words": [
+        "dotenv",
+        "LASTEXITCODE",
+        "venv"
+    ],
+    "chat.tools.terminal.autoApprove": {
+        "/^python -m pytest tests/test_daily_batch\\.py -q$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
