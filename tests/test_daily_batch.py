@@ -3,15 +3,26 @@ import unittest
 from datetime import datetime
 from unittest import mock
 
-from src.handlers import (
+from src.handlers.applications import (
     get_apply_forum_ids,
     get_apply_type_options,
     get_apply_type_title,
+)
+from src.handlers.schedule import (
     get_round_number_from_game_row,
     get_round_number_from_location_row,
 )
-from src.reminders import format_sheet_date, get_active_category_ids
-from src.utils import is_month_within_season
+from src.reminders import (
+    format_sheet_date,
+    get_active_category_ids,
+    is_reminder_target_channel,
+)
+from src.utils import (
+    build_match_channel_name,
+    get_target_yymm_for_channel_creation,
+    is_month_within_season,
+    normalize_yymm_from_sheet_value,
+)
 
 
 class DailyBatchTests(unittest.TestCase):
@@ -42,6 +53,69 @@ class DailyBatchTests(unittest.TestCase):
     def test_format_sheet_date(self):
         self.assertEqual(format_sheet_date(datetime(2026, 9, 30, 21, 7)), "2026/09/30")
 
+    def test_is_reminder_target_channel(self):
+        class DummySheets:
+            def get_values(self, range_name, spreadsheet_key):
+                self.range_name = range_name
+                self.spreadsheet_key = spreadsheet_key
+                return [
+                    [
+                        "",
+                        "",
+                        "cid-home",
+                        "",
+                        "cid-away",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "調整",
+                        "",
+                    ]
+                ]
+
+        bot = type(
+            "Bot",
+            (),
+            {
+                "club_cid_map": {"home": "cid-home", "away": "cid-away"},
+                "sheets": DummySheets(),
+            },
+        )()
+        self.assertTrue(is_reminder_target_channel(bot, "g-2609-home-away"))
+
+        class DummySheetsCancelled:
+            def get_values(self, range_name, spreadsheet_key):
+                return [
+                    [
+                        "",
+                        "",
+                        "cid-home",
+                        "",
+                        "cid-away",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "確認済",
+                        "",
+                    ]
+                ]
+
+        bot2 = type(
+            "Bot2",
+            (),
+            {
+                "club_cid_map": {"home": "cid-home", "away": "cid-away"},
+                "sheets": DummySheetsCancelled(),
+            },
+        )()
+        self.assertFalse(is_reminder_target_channel(bot2, "g-2609-home-away"))
+
     def test_get_apply_forum_ids(self):
         with mock.patch.dict(
             os.environ,
@@ -68,6 +142,27 @@ class DailyBatchTests(unittest.TestCase):
         location_row = ["", "", "", "", "", "", "", "", "", "10", ""]
         self.assertEqual(get_round_number_from_game_row(game_row), "3")
         self.assertEqual(get_round_number_from_location_row(location_row), "10")
+
+    def test_get_target_yymm_for_channel_creation(self):
+        self.assertEqual(
+            get_target_yymm_for_channel_creation(datetime(2026, 8, 1)), "2610"
+        )
+        self.assertEqual(
+            get_target_yymm_for_channel_creation(datetime(2026, 12, 1)), "2702"
+        )
+
+    def test_normalize_yymm_from_sheet_value(self):
+        self.assertEqual(normalize_yymm_from_sheet_value("27/01"), "2701")
+        self.assertEqual(normalize_yymm_from_sheet_value("2701"), "2701")
+
+    def test_build_match_channel_name(self):
+        self.assertEqual(
+            build_match_channel_name("g", "2701", "home", "away"), "g-2701-home-away"
+        )
+        self.assertEqual(
+            build_match_channel_name("gc", "2701", "コブラ", "sisu"),
+            "gc-2701-コブラ-sisu",
+        )
 
 
 if __name__ == "__main__":

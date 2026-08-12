@@ -3,6 +3,7 @@
 ## 機能要約
 
 - 定期リマインダー: 毎月 10 日 / 20 日 / 25 日に対象試合チャンネルへ通知
+- チャンネル新規作成バッチ: 毎月 1 日に 2 ヶ月後の試合チャンネルを自動生成
 - チャンネル初期案内: 試合チャンネル作成時に運用ガイドを自動投稿
 - 日程確定モーダル: 「@運営 日程」を起点に入力 UI を表示
 - Google 連携: 日程データを Sheets に反映し、Calendar イベントを作成
@@ -19,20 +20,30 @@
 - Bot 本体クラスを提供する。
 - Discord イベント (`on_ready`, `on_message`, `on_guild_channel_create`) を受ける。
 - APScheduler の起動とジョブ登録を行う。
-- 個別ロジックは `src/reminders.py` / `src/handlers.py` に委譲する。
+- 個別ジョブ実装は `src/jobs/*.py` に分離し、そこへ処理を委譲する。
+
+## src/jobs/
+
+- 各定期ジョブの処理を分離して保持する。
+- `channel_create_batch.py`: 2 ヶ月後試合チャンネル作成バッチ
+- `daily_batch.py`: 最終投稿日更新ジョブ
+- `reminder_10.py`: 10 日リマインドジョブ
+- `reminder_20.py`: 20 日リマインドジョブ
+- `reminder_25.py`: 25 日リマインドジョブ
+- `shared.py`: ジョブ間で共通利用する helper を持つ
 
 ## src/reminders.py
 
-- スケジューラで実行される通知処理を担当する。
-- 対象月の試合チャンネルを抽出し、10日/20日/25日の文面を送信する。
-- `REMINDER_DRY_RUN` が有効な場合は送信せずログのみ出力する。
+- 既存 import 互換のために残した薄いラッパー層。
+- 実際のジョブロジックは `src/jobs/` 配下へ分離されている。
 
-## src/handlers.py
+## src/handlers/
 
-- ユーザー起点の処理を担当する。
-- `!status` コマンドや「@運営 日程」の検知を行う。
-- モーダル入力値の検証、Sheets 更新、Calendar 作成、完了通知を行う。
-- UI クラス (`ScheduleModal`, `ScheduleTriggerView`) を提供する。
+- ユーザー起点の処理をパッケージ単位で分割して管理する。
+- `commands.py`: `!status` コマンドや「@運営 日程」の検知を行う。
+- `channel_create.py`: 新規チャンネル作成時の初期案内メッセージ送信を行う。
+- `schedule.py`: モーダル入力値の検証、Sheets 更新、Calendar 作成、完了通知を行う。
+- `applications.py`: 申請フォーラムのスレッド作成と申請種別選択 UI を提供する。
 
 ## src/utils.py
 
@@ -70,7 +81,7 @@
 
 ## 拡張時の方針
 
-- スケジューラ起点の新機能は `src/reminders.py` を優先して追加する。
-- ユーザー入力起点の新機能は `src/handlers.py` に追加する。
+- スケジューラ起点の新機能は `src/jobs/` に個別モジュールとして追加する。
+- ユーザー入力起点の新機能は `src/handlers/` 配下の適切なモジュールに追加する。
 - 共通化できる処理は `src/utils.py` へ寄せる。
 - 外部 API 呼び出しは `src/google_services.py` に閉じ込める。

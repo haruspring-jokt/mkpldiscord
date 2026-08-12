@@ -90,6 +90,39 @@ def get_target_month_codes(now: datetime) -> list[str]:
     return [f"{str(next_year)[2:]}{next_month:02d}"]
 
 
+def get_target_yymm_for_channel_creation(now: datetime) -> str:
+    """現在月の2ヶ月後の試合月コード(yyMM)を生成します。"""
+    month_offset = (now.month - 1 + 2) % 12
+    year_offset = (now.month - 1 + 2) // 12
+    target_year = now.year + year_offset
+    target_month = month_offset + 1
+    return f"{str(target_year)[2:]}{target_month:02d}"
+
+
+def normalize_yymm_from_sheet_value(value: object) -> str:
+    """シート上の yy/mm / yymm / yyyy/mm を yymm へ正規化します。"""
+    if value is None or value is False:
+        return ""
+    raw = str(value).strip()
+    if not raw or raw.lower() in {"false", "none", "null"}:
+        return ""
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) == 6 and digits.startswith("20"):
+        return digits[2:]
+    if len(digits) == 6:
+        return digits
+    if len(digits) == 4:
+        return digits
+    return ""
+
+
+def build_match_channel_name(
+    prefix: str, yymm: str, home_alias: str, away_alias: str
+) -> str:
+    """試合チャンネル名を生成します。"""
+    return f"{prefix}-{yymm}-{home_alias}-{away_alias}"
+
+
 def find_game_row(
     sheets: GoogleSheetsClient, division: str, home_cid: str, away_cid: str
 ) -> tuple[int, list[Any]] | None:

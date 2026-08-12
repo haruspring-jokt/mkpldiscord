@@ -2,8 +2,8 @@
 
 このモジュールはボットクラス、イベントハンドラ登録、スケジューラ管理を担当します。
 具体的な処理ロジックは以下のモジュールに分割されています:
-- src.reminders: スケジューラ実行処理
-- src.handlers: ユーザーメッセージ・コマンド・モーダル処理
+- src.jobs: スケジューラ実行処理
+- src.handlers: ユーザー入力系イベント処理のパッケージ
 - src.utils: 共通ユーティリティ
 """
 
@@ -24,17 +24,14 @@ from src.google_services import (
     GoogleStorageClient,
 )
 from src.storage import JsonStorage
-from src.reminders import (
-    send_monthly_reminders,
-    send_20th_reminders,
-    send_25th_reminders,
-    update_last_post_dates_for_match_channels,
-)
-from src.handlers import (
-    handle_message_commands,
-    handle_guild_channel_create,
-    handle_thread_create,
-)
+from src.handlers.applications import handle_thread_create
+from src.handlers.channel_create import handle_guild_channel_create
+from src.handlers.commands import handle_message_commands
+from src.jobs.channel_create_batch import create_match_channels_for_target_month
+from src.jobs.daily_batch import update_last_post_dates_for_match_channels
+from src.jobs.reminder_10 import send_10th_reminders
+from src.jobs.reminder_20 import send_20th_reminders
+from src.jobs.reminder_25 import send_25th_reminders
 
 
 class LeagueBot(commands.Bot):
@@ -73,6 +70,7 @@ class LeagueBot(commands.Bot):
 
         alias_to_role: dict[str, str] = {}
         alias_to_cid: dict[str, str] = {}
+        cid_to_alias: dict[str, str] = {}
         for club in clubs:
             alias = club.get("alias")
             role_name = club.get("role_name")
@@ -83,6 +81,8 @@ class LeagueBot(commands.Bot):
                     alias_to_role[key] = role_name
                 if isinstance(cid, str):
                     alias_to_cid[key] = cid
+                    cid_to_alias[cid.strip().casefold()] = alias
+        self.club_cid_to_alias_map = cid_to_alias
         return alias_to_role, alias_to_cid
 
     async def on_ready(self) -> None:
@@ -104,8 +104,8 @@ class LeagueBot(commands.Bot):
         # on_ready は複数回呼ばれることがあるため、ジョブ登録は一度だけ行う
         if not self._jobs_registered:
             await self.schedule_recurring_reminders()
-            await self.schedule_monthly_reminders()
             await self.schedule_daily_batch()
+            await self.schedule_game_channel_create_batch()
             self._jobs_registered = True
 
     async def on_message(self, message: discord.Message) -> None:
@@ -117,81 +117,49 @@ class LeagueBot(commands.Bot):
 
         await handle_message_commands(self, message)
 
+    def _get_job_schedule(self, prefix: str) -> tuple[bool, tuple[int, int, int]]:
+        """環境変数からジョブの実行可否と実行時刻(DDHHMM)を読み取る。"""
+        enabled = os.getenv(f"{prefix}_ENABLED", "0").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        if not enabled:
+            return False, (1, 0, 0)
+
+        raw = os.getenv(f"{prefix}_SCHEDULE", "").strip()
+        if not raw:
+            raise ValueError(f"{prefix}_SCHEDULE is required when {prefix}_ENABLED=1")
+        if len(raw) != 6 or not raw.isdigit():
+            raise ValueError(f"{prefix}_SCHEDULE must be 6 digits like DDHHMM: {raw!r}")
+
+        day = int(raw[:2])
+        hour = int(raw[2:4])
+        minute = int(raw[4:6])
+        if not (1 <= day <= 31 and 0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError(f"invalid schedule value: {raw!r}")
+        return True, (day, hour, minute)
+
     async def schedule_recurring_reminders(self) -> None:
-        """20日と25日のリマインダーをスケジュールします。"""
-        self.scheduler.add_job(
-            self.send_20th_reminders_job,
-            "cron",
-            day=20,
-            hour=9,
-            minute=0,
-        )
-        self.scheduler.add_job(
-            self.send_25th_reminders_job,
-            "cron",
-            day=25,
-            hour=9,
-            minute=0,
-        )
-
-    async def schedule_monthly_reminders(self) -> None:
-        """月次リマインダー実行ジョブを登録します。
-
-        通常は毎月10日9:00に実行します。
-        テスト用に TEST_REMINDER=1 を指定した場合は、直近の11日22:00に一度だけ実行します。
-        """
-        test_mode = os.getenv("TEST_REMINDER", "0") in ("1", "true", "True")
-        if test_mode:
-            now = datetime.now()
-            target_date = os.getenv("TEST_REMINDER_DATE")
-            if target_date:
-                try:
-                    if target_date == "now":
-                        target = now + timedelta(seconds=10)
-                    elif target_date.startswith("now+"):
-                        spec = target_date[4:]
-                        if spec.endswith("s"):
-                            secs = int(spec[:-1])
-                            target = now + timedelta(seconds=secs)
-                        elif spec.endswith("m"):
-                            mins = int(spec[:-1])
-                            target = now + timedelta(minutes=mins)
-                        else:
-                            target = datetime.fromisoformat(target_date)
-                    else:
-                        target = datetime.fromisoformat(target_date)
-                except Exception as exc:
-                    print(
-                        f"[TEST_REMINDER] invalid TEST_REMINDER_DATE '{target_date}': {exc}"
-                    )
-                    target = now.replace(hour=22, minute=0, second=0, microsecond=0)
-            else:
-                target = now.replace(hour=22, minute=0, second=0, microsecond=0)
-            if now.day > 11 or (now.day == 11 and now >= target):
-                month = now.month + 1
-                year = now.year
-                if month > 12:
-                    month = 1
-                    year += 1
-                target = target.replace(year=year, month=month, day=11)
-            else:
-                target = target.replace(day=11)
-            print(
-                f"[TEST_REMINDER] scheduling one-time reminder for {target.isoformat()}"
-            )
+        """10日・20日・25日のリマインダーを env で管理するスケジュールに従って登録します。"""
+        for prefix, job_method in (
+            ("REMINDER_10", self.send_10th_reminders_job),
+            ("REMINDER_20", self.send_20th_reminders_job),
+            ("REMINDER_25", self.send_25th_reminders_job),
+        ):
+            try:
+                enabled, (day, hour, minute) = self._get_job_schedule(prefix)
+            except ValueError as exc:
+                print(f"[REMINDER] invalid config for {prefix}: {exc}")
+                continue
+            if not enabled:
+                print(f"[REMINDER] disabled: {prefix}")
+                continue
             self.scheduler.add_job(
-                self.send_monthly_reminders_job,
-                "date",
-                run_date=target,
+                job_method, "cron", day=day, hour=hour, minute=minute
             )
-        else:
-            self.scheduler.add_job(
-                self.send_monthly_reminders_job,
-                "cron",
-                day=10,
-                hour=9,
-                minute=0,
-            )
+            print(f"[REMINDER] scheduled {prefix} at {day:02d}/{hour:02d}:{minute:02d}")
 
     async def schedule_daily_batch(self) -> None:
         """毎日決まった時刻に共通調整シートの最終投稿日を更新するジョブを登録します。"""
@@ -220,9 +188,9 @@ class LeagueBot(commands.Bot):
         )
         print(f"[DAILY-BATCH] scheduled daily at {hour:02d}:{minute:02d}")
 
-    async def send_monthly_reminders_job(self) -> None:
-        """月次リマインダー送信ジョブ。"""
-        await send_monthly_reminders(self, self.club_alias_map)
+    async def send_10th_reminders_job(self) -> None:
+        """10日リマインダー送信ジョブ。"""
+        await send_10th_reminders(self, self.club_alias_map)
 
     async def send_20th_reminders_job(self) -> None:
         """20日リマインダー送信ジョブ。"""
@@ -235,6 +203,48 @@ class LeagueBot(commands.Bot):
     async def send_daily_batch_job(self) -> None:
         """最終非 bot 投稿日の更新ジョブ。"""
         await update_last_post_dates_for_match_channels(self)
+
+    async def schedule_game_channel_create_batch(self) -> None:
+        """毎月1日に2ヶ月後の試合チャンネルを作成するジョブを登録します。"""
+        enabled = os.getenv(
+            "GAME_CHANNEL_CREATE_BATCH_ENABLED", "0"
+        ).strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        if not enabled:
+            print("[CHANNEL-BATCH] disabled")
+            return
+
+        raw_time = os.getenv("GAME_CHANNEL_CREATE_BATCH_TIME", "010700").strip()
+        try:
+            if len(raw_time) != 6 or not raw_time.isdigit():
+                raise ValueError(raw_time)
+            day = int(raw_time[:2])
+            hour = int(raw_time[2:4])
+            minute = int(raw_time[4:6])
+            if not (1 <= day <= 31 and 0 <= hour <= 23 and 0 <= minute <= 59):
+                raise ValueError(raw_time)
+        except ValueError:
+            print(
+                f"[CHANNEL-BATCH] invalid GAME_CHANNEL_CREATE_BATCH_TIME '{raw_time}', fallback 010700"
+            )
+            day, hour, minute = 1, 7, 0
+
+        self.scheduler.add_job(
+            self.send_game_channel_create_batch_job,
+            "cron",
+            day=day,
+            hour=hour,
+            minute=minute,
+        )
+        print(f"[CHANNEL-BATCH] scheduled monthly at {day:02d}/{hour:02d}:{minute:02d}")
+
+    async def send_game_channel_create_batch_job(self) -> None:
+        """2ヶ月後の試合チャンネルを作成するジョブ。"""
+        await create_match_channels_for_target_month(self)
 
     def _aps_job_listener(self, event) -> None:
         """APScheduler のジョブ実行イベントを受け取りログ出力する。"""
