@@ -6,6 +6,7 @@ from datetime import datetime
 from discord.ext import commands
 
 from src.jobs.shared import is_reminder_target_channel
+from src.sheet_ranges import SHARED_SHEET_RANGE
 from src.utils import (
     format_match_reminder,
     get_target_month_codes,
@@ -30,7 +31,7 @@ async def send_10th_reminders(bot: commands.Bot, alias_to_role: dict[str, str]) 
 
     season_first_month = os.getenv("LEAGUE_CURRENT_SEASON_FIRST_MONTH", "").strip()
     season_last_month = os.getenv("LEAGUE_CURRENT_SEASON_LAST_MONTH", "").strip()
-    shared_rows = bot.sheets.get_values("場所調整!A1:Z200", "shared")
+    shared_rows = bot.sheets.get_values(SHARED_SHEET_RANGE, "shared")
 
     for guild in bot.guilds:
         if not guild.text_channels:

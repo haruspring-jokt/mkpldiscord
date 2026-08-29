@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 import discord
 
 from src.google_services import GoogleSheetsClient
+from src.sheet_ranges import GAME_SHEET_RANGE, SHARED_SHEET_RANGE_COMPACT
 
 # g-2406-ABC-XYZ や gc-2407-DEF-GHI だけでなく、g-202409-... のような 6 桁表記も受け付けます。
 CHANNEL_PATTERN = re.compile(r"^(gc?)-(?P<yymm>\d{4}|\d{6})-(?P<rest>.+)$")
@@ -203,7 +204,7 @@ def find_game_row(
     sheets: GoogleSheetsClient, division: str, home_cid: str, away_cid: str
 ) -> tuple[int, list[Any]] | None:
     """管理スプレッドシートの Game シートから該当する試合行を検索します。"""
-    values = sheets.get_values("Game!A1:O200", division)
+    values = sheets.get_values(GAME_SHEET_RANGE, division)
     for idx, row in enumerate(values, start=1):
         home_val = row[5].strip() if len(row) > 5 else ""
         away_val = row[6].strip() if len(row) > 6 else ""
@@ -216,7 +217,7 @@ def find_location_row(
     sheets: GoogleSheetsClient, home_cid: str, away_cid: str
 ) -> int | None:
     """場所調整シートから該当する試合行を検索します。"""
-    values = sheets.get_values("場所調整!A1:P200", "shared")
+    values = sheets.get_values(SHARED_SHEET_RANGE_COMPACT, "shared")
     for idx, row in enumerate(values, start=1):
         home_val = row[2].strip() if len(row) > 2 else ""
         away_val = row[4].strip() if len(row) > 4 else ""

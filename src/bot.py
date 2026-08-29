@@ -72,11 +72,13 @@ class LeagueBot(commands.Bot):
 
         alias_to_role: dict[str, str] = {}
         alias_to_cid: dict[str, str] = {}
+        alias_to_calendar_name: dict[str, str] = {}
         cid_to_alias: dict[str, str] = {}
         for club in clubs:
             alias = club.get("alias")
             role_name = club.get("role_name")
             cid = club.get("cid")
+            calendar_name = club.get("calendar_name")
             if isinstance(alias, str):
                 key = alias.casefold()
                 if isinstance(role_name, str):
@@ -84,7 +86,10 @@ class LeagueBot(commands.Bot):
                 if isinstance(cid, str):
                     alias_to_cid[key] = cid
                     cid_to_alias[cid.strip().casefold()] = alias
+                if isinstance(calendar_name, str):
+                    alias_to_calendar_name[key] = calendar_name
         self.club_cid_to_alias_map = cid_to_alias
+        self.club_calendar_name_map = alias_to_calendar_name
         return alias_to_role, alias_to_cid
 
     async def on_ready(self) -> None:
