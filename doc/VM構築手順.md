@@ -119,6 +119,7 @@ sudo systemctl enable discord-bot
 
 ```
 sudo systemctl status discord-bot
+sudo systemctl restart discord-bot
 ```
 
 ※ active (running) と緑色で表示されていれば、無事に24時間常時起動に成功です！

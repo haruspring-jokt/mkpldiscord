@@ -6,6 +6,7 @@ import discord
 from discord import ui
 
 from src.google_services import GoogleCalendarClient, GoogleSheetsClient
+from src.sheet_ranges import SHARED_SHEET_NAME, game_date_range, shared_location_range
 from src.utils import (
     build_gcal_link,
     find_club_role_mention,
@@ -79,9 +80,7 @@ async def process_schedule_submission(
         return
     row_idx, row_values = game_row
     try:
-        sheets.update_range(
-            f"Game!M{row_idx}:N{row_idx}", [[date_str, time_str]], division
-        )
+        sheets.update_range(game_date_range(row_idx), [[date_str, time_str]], division)
     except Exception as exc:
         print(f"[SCHEDULE] failed to update Game sheet: {exc}")
         await post_bot_log(
@@ -110,9 +109,11 @@ async def process_schedule_submission(
     location_row_idx = find_location_row(sheets, home_cid, away_cid)
     if location_row_idx:
         try:
-            sheets.update_range(f"場所調整!P{location_row_idx}", [[location]], "shared")
+            sheets.update_range(
+                shared_location_range(location_row_idx), [[location]], "shared"
+            )
         except Exception as exc:
-            print(f"[SCHEDULE] failed to update 場所調整 sheet: {exc}")
+            print(f"[SCHEDULE] failed to update {SHARED_SHEET_NAME} sheet: {exc}")
     else:
         print("[SCHEDULE] 場所調整シートに該当する試合行が見つかりませんでした")
 
@@ -120,8 +121,12 @@ async def process_schedule_submission(
     match_id = str(row_values[2]).strip() if len(row_values) > 2 else ""
     league_label = os.getenv(f"LEAGUE_LABEL_{division.upper()}", "")
     event_prefix = os.getenv(f"LEAGUE_EVENT_PREFIX_{division.upper()}", "")
-    home_name = bot.club_alias_map.get(home_alias.casefold(), home_alias)
-    away_name = bot.club_alias_map.get(away_alias.casefold(), away_alias)
+    home_name = bot.club_calendar_name_map.get(
+        home_alias.casefold(), bot.club_alias_map.get(home_alias.casefold(), home_alias)
+    )
+    away_name = bot.club_calendar_name_map.get(
+        away_alias.casefold(), bot.club_alias_map.get(away_alias.casefold(), away_alias)
+    )
     event_name = f"{event_prefix} {league_label} 第{round_no}節 {home_name} - {away_name}".strip()
 
     match_site_base = os.getenv(

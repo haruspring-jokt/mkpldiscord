@@ -7,6 +7,7 @@ import os
 import discord
 from discord.ext import commands
 
+from src.sheet_ranges import SHARED_SHEET_RANGE
 from src.utils import parse_match_channel
 
 
@@ -30,7 +31,7 @@ def is_reminder_target_channel(
     values = (
         shared_rows
         if shared_rows is not None
-        else bot.sheets.get_values("場所調整!A1:Z200", "shared")
+        else bot.sheets.get_values(SHARED_SHEET_RANGE, "shared")
     )
     for row in values:
         if len(row) <= 4:

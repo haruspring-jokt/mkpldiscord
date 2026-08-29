@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from discord.ext import commands
 
 from src.jobs.shared import get_active_category_ids
+from src.sheet_ranges import SHARED_SHEET_RANGE, shared_last_post_range
 from src.utils import is_month_within_season, parse_match_channel, post_bot_log
 
 
@@ -72,7 +73,7 @@ async def send_match_day_reminders(bot: commands.Bot) -> None:
     dry_run = os.getenv("REMINDER_DRY_RUN", "0") in ("1", "true", "True")
 
     try:
-        shared_rows = bot.sheets.get_values("場所調整!A1:Z200", "shared")
+        shared_rows = bot.sheets.get_values(SHARED_SHEET_RANGE, "shared")
     except Exception as exc:
         print(
             f"[DAILY-BATCH] failed to read shared sheet for match-day reminders: {exc}"
@@ -83,7 +84,7 @@ async def send_match_day_reminders(bot: commands.Bot) -> None:
             "send_match_day_reminders",
             datetime.now(ZoneInfo("Asia/Tokyo")),
             success=False,
-            context={"sheet": "場所調整!A1:Z200", "target_date": today.isoformat()},
+            context={"sheet": SHARED_SHEET_RANGE, "target_date": today.isoformat()},
             exc=exc,
         )
         return
@@ -196,7 +197,7 @@ async def update_last_post_dates_for_match_channels(
         f"[DAILY-BATCH] start season={season_first_month}..{season_last_month} categories={active_categories}"
     )
 
-    location_rows = bot.sheets.get_values("場所調整!A1:Z200", "shared")
+    location_rows = bot.sheets.get_values(SHARED_SHEET_RANGE, "shared")
     location_index: dict[tuple[str, str], tuple[int, list[str]]] = {}
     for row_idx, row in enumerate(location_rows, start=1):
         if len(row) <= 4:
@@ -249,7 +250,7 @@ async def update_last_post_dates_for_match_channels(
             row_idx, row = row_info
             status_value = row[11].strip() if len(row) > 11 else ""
             if status_value != "調整":
-                update_requests.append((f"場所調整!AB{row_idx}", [[""]]))
+                update_requests.append((shared_last_post_range(row_idx), [[""]]))
                 print(
                     f"[DAILY-BATCH] cleared stale AB{row_idx} for {channel.name} because status is '{status_value}'"
                 )
@@ -289,7 +290,7 @@ async def update_last_post_dates_for_match_channels(
                 continue
 
             sheet_date = format_sheet_date(last_message.created_at.astimezone())
-            update_requests.append((f"場所調整!AB{row_idx}", [[sheet_date]]))
+            update_requests.append((shared_last_post_range(row_idx), [[sheet_date]]))
             print(
                 f"[DAILY-BATCH] queued update for {channel.name} -> AB{row_idx} = {sheet_date}"
             )

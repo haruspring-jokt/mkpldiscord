@@ -7,6 +7,7 @@ import discord
 from discord.ext import commands
 
 from src.jobs.shared import get_active_category_ids
+from src.sheet_ranges import SHARED_SHEET_RANGE
 from src.utils import (
     build_match_channel_name,
     get_target_yymm_for_channel_creation,
@@ -64,7 +65,7 @@ async def create_match_channels_for_target_month(bot: commands.Bot) -> None:
     print(f"[CHANNEL-BATCH] start target_yymm={target_yymm}")
 
     try:
-        values = bot.sheets.batch_get_values(["場所調整!A1:Z200"], "shared")
+        values = bot.sheets.batch_get_values([SHARED_SHEET_RANGE], "shared")
         values = values[0] if values else []
     except Exception as exc:
         print(f"[CHANNEL-BATCH] failed to read shared sheet: {exc}")
