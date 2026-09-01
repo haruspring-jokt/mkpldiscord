@@ -32,6 +32,50 @@ def test_should_ignore_example_message() -> None:
     assert should_ignore_example_message("@運営 日程") is False
 
 
+def test_handle_guild_channel_create_skips_duplicate_initial_message(monkeypatch) -> None:
+    class DummyMessage:
+        author = type("Author", (), {"bot": True})()
+        content = "# 日程調整をお願いします\n:regional_indicator_s: シーズン：2026-27"
+
+    class DummyChannel:
+        name = "g-2611-jaja-sisu"
+        id = 999
+        guild = type("Guild", (), {})()
+
+        def history(self, limit=20):
+            return iter([DummyMessage()])
+
+        async def send(self, *args, **kwargs):
+            raise AssertionError("duplicate initial message should be skipped")
+
+    class DummyBot:
+        club_cid_map = {"jaja": "C01", "sisu": "C02"}
+        club_alias_map = {"jaja": "Jaja Role", "sisu": "Sisu Role"}
+        sheets = object()
+
+    monkeypatch.setattr(
+        "src.handlers.channel_create.parse_match_channel",
+        lambda name: {"yymm": "2611", "home": "jaja", "away": "sisu", "division": "div1"},
+    )
+    monkeypatch.setattr(
+        "src.handlers.channel_create.is_month_within_season",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(
+        "src.handlers.channel_create.find_club_role_mention",
+        lambda guild, alias, alias_map: f"@{alias}",
+    )
+    monkeypatch.setattr(
+        "src.handlers.channel_create.find_game_row",
+        lambda *args, **kwargs: None,
+    )
+
+    async def run_test() -> None:
+        await handle_guild_channel_create(DummyBot(), DummyChannel())
+
+    asyncio.run(run_test())
+
+
 def test_process_schedule_submission_uses_calendar_name(monkeypatch) -> None:
     class DummySheets:
         def update_range(self, *args, **kwargs):
