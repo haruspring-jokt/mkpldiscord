@@ -21,6 +21,20 @@ def get_round_number_from_game_row(row: list[object]) -> str:
     return str(round_raw).strip()
 
 
+async def has_initial_schedule_message(channel: discord.TextChannel) -> bool:
+    """同じ試合チャンネルへ初期メッセージが既に投稿済みなら true を返す。"""
+    try:
+        history = channel.history(limit=20)
+        async for message in history:
+            if message.author.bot and message.content.startswith(
+                "# 日程調整をお願いします"
+            ):
+                return True
+    except Exception:
+        return False
+    return False
+
+
 async def handle_guild_channel_create(
     bot: "discord.ext.commands.Bot", channel: discord.abc.GuildChannel
 ) -> None:
@@ -35,6 +49,12 @@ async def handle_guild_channel_create(
     if not is_month_within_season(
         metadata["yymm"], season_first_month, season_last_month
     ):
+        return
+
+    if await has_initial_schedule_message(channel):
+        print(
+            f"[CHANNEL] skip duplicate initial message for {channel.name} ({channel.id})"
+        )
         return
 
     yymm = metadata["yymm"]
