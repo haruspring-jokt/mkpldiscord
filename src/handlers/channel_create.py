@@ -26,7 +26,9 @@ async def has_initial_schedule_message(channel: discord.TextChannel) -> bool:
     try:
         history = channel.history(limit=20)
         async for message in history:
-            if message.author.bot and message.content.startswith("# 日程調整をお願いします"):
+            if message.author.bot and message.content.startswith(
+                "# 日程調整をお願いします"
+            ):
                 return True
     except Exception:
         return False
@@ -50,7 +52,9 @@ async def handle_guild_channel_create(
         return
 
     if await has_initial_schedule_message(channel):
-        print(f"[CHANNEL] skip duplicate initial message for {channel.name} ({channel.id})")
+        print(
+            f"[CHANNEL] skip duplicate initial message for {channel.name} ({channel.id})"
+        )
         return
 
     yymm = metadata["yymm"]

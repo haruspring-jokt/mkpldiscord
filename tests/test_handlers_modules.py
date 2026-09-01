@@ -32,7 +32,9 @@ def test_should_ignore_example_message() -> None:
     assert should_ignore_example_message("@運営 日程") is False
 
 
-def test_handle_guild_channel_create_skips_duplicate_initial_message(monkeypatch) -> None:
+def test_handle_guild_channel_create_skips_duplicate_initial_message(
+    monkeypatch,
+) -> None:
     class DummyMessage:
         author = type("Author", (), {"bot": True})()
         content = "# 日程調整をお願いします\n:regional_indicator_s: シーズン：2026-27"
@@ -55,7 +57,12 @@ def test_handle_guild_channel_create_skips_duplicate_initial_message(monkeypatch
 
     monkeypatch.setattr(
         "src.handlers.channel_create.parse_match_channel",
-        lambda name: {"yymm": "2611", "home": "jaja", "away": "sisu", "division": "div1"},
+        lambda name: {
+            "yymm": "2611",
+            "home": "jaja",
+            "away": "sisu",
+            "division": "div1",
+        },
     )
     monkeypatch.setattr(
         "src.handlers.channel_create.is_month_within_season",
