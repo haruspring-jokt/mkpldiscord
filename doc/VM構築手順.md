@@ -113,7 +113,7 @@ sudo systemctl daemon-reload
 sudo systemctl start discord-bot
 # VM起動時に自動で立ち上がるようにする
 sudo systemctl enable discord-bot
-``
+```
 
 稼働状態を確認します。
 
@@ -123,3 +123,63 @@ sudo systemctl restart discord-bot
 ```
 
 ※ active (running) と緑色で表示されていれば、無事に24時間常時起動に成功です！
+
+# メモリリーク対策
+
+## スワップの追加（メモリ不足対策）
+
+e2-micro はメモリが 1 GB しかなく、長期稼働で OOM（メモリ不足）によりプロセスが kill されることがあるため、スワップを追加します。
+
+```
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h
+```
+
+※ `Swap:` の行が 2.0Gi と表示されれば完了です。
+
+## 毎日 AM 3:00（JST）にボットを再起動する
+
+メモリ増加の蓄積を防ぐため、cron で毎日ボットを再起動します（タイムゾーンは「日本時間に設定する」で設定済みであること）。
+
+```
+sudo crontab -e
+```
+
+末尾に以下を追加します。
+
+```
+0 3 * * * /usr/bin/systemctl restart discord-bot
+```
+
+## VM状況の確認：
+
+```sh
+sudo crontab -l
+# 再起動時間の確認
+systemctl status discord-bot | grep Active
+# メモリ使用状況の確認
+ps -o pid,rss,etime,cmd -C python
+```
+
+# ソース変更の反映方法
+
+GitHub に push したソースの変更を VM に反映する手順です。
+
+```
+cd ~/<リポジトリ名>
+git status
+git pull
+# requirements.txt を変更した場合のみ
+source .venv/bin/activate
+pip install -r requirements.txt
+# ボットを再起動して反映
+sudo systemctl restart discord-bot
+systemctl status discord-bot
+```
+
+- 反映確認: `git log -1 --oneline` が GitHub 側の最新コミットと一致していること、`status` が active (running) であること。
+- `.env`、`club.json`、`service-account.json` は git 管理外のため、変更した場合は「ファイルのアップロード」で VM に再アップロードし、ボットを再起動する（`club.json` は起動時にのみ読み込まれる）。
