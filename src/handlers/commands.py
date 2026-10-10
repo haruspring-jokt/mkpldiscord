@@ -6,33 +6,17 @@ import discord
 from src.utils import is_month_within_season, parse_match_channel
 
 
+_CODE_PATTERN = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.DOTALL)
+
+
+def strip_code(message_text: str) -> str:
+    """コードブロック（```）とインラインコード（`）の部分を取り除く。"""
+    return _CODE_PATTERN.sub(" ", message_text)
+
+
 def should_ignore_example_message(message_text: str) -> bool:
-    """ドキュメント例やコードブロックに含まれるメッセージは無視する。"""
-    stripped = message_text.strip()
-    if not stripped:
-        return True
-
-    if re.fullmatch(
-        r"[`\"“”'‘’「」『』\(\)\[\]\{\}]+.*[`\"“”'‘’「」『』\(\)\[\]\{\}]+", stripped
-    ):
-        return True
-
-    if re.search(r"```|`@運営 日程`|「@運営 日程」|『@運営 日程』", stripped):
-        return True
-
-    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
-    if not lines:
-        return True
-
-    fenced = False
-    for line in lines:
-        if line.startswith("```"):
-            fenced = not fenced
-            continue
-        if fenced:
-            return True
-
-    return False
+    """コードブロック／インラインコードの外に本文が無いメッセージは無視する。"""
+    return not strip_code(message_text).strip()
 
 
 async def handle_message_commands(
@@ -61,14 +45,15 @@ async def maybe_trigger_schedule_modal(
         metadata["yymm"], season_first_month, season_last_month
     ):
         return
-    if "日程" not in message.content:
+    content = strip_code(message.content)
+    if "日程" not in content:
         return
 
     admin_role_id = int(os.getenv("ADMIN_ROLE_ID", "0") or "0")
     mentioned_admin = admin_role_id and any(
         role.id == admin_role_id for role in message.role_mentions
     )
-    if not mentioned_admin and "@運営" not in message.content:
+    if not mentioned_admin and "@運営" not in content:
         return
 
     from .schedule import ScheduleTriggerView

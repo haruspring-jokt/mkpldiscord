@@ -6,7 +6,11 @@ from src.handlers.applications import (
     handle_thread_create,
 )
 from src.handlers.channel_create import handle_guild_channel_create
-from src.handlers.commands import handle_message_commands, should_ignore_example_message
+from src.handlers.commands import (
+    handle_message_commands,
+    should_ignore_example_message,
+    strip_code,
+)
 from src.handlers.schedule import (
     ScheduleModal,
     ScheduleTriggerView,
@@ -28,8 +32,16 @@ def test_handler_modules_are_importable() -> None:
 def test_should_ignore_example_message() -> None:
     assert should_ignore_example_message("`@運営 日程`") is True
     assert should_ignore_example_message("```\n@運営 日程\n```") is True
-    assert should_ignore_example_message("「@運営 日程」") is True
+    assert should_ignore_example_message("「@運営 日程」") is False
     assert should_ignore_example_message("@運営 日程") is False
+    assert should_ignore_example_message("@運営　日程お願いします") is False
+
+
+def test_strip_code_removes_only_code_parts() -> None:
+    assert "日程" not in strip_code("`@運営 日程` の使い方")
+    assert "日程" not in strip_code("```\n@運営 日程\n```")
+    assert "@運営" in strip_code("@運営　`foo` 日程")
+    assert "日程" in strip_code("「@運営 日程」")
 
 
 def test_handle_guild_channel_create_skips_duplicate_initial_message(
