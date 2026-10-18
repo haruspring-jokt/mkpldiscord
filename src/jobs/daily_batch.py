@@ -52,6 +52,10 @@ def build_match_day_reminder_message(division: str, form_url: str) -> str:
     )
     return (
         "# 試合当日になりました\n"
+        "\n"
+        "## :question: 当日の流れガイド（必ず確認してください）\n"
+        "https://molkkyprime.notion.site/3fb44c08fead80a39e9ee6d3f8c92758 \n"
+        "\n"
         "・本日は試合予定日です。試合の流れについては調整方法チャンネルを参照してください。\n"
         f"・🚨今シーズンから{special_rule}が追加されていますので必ずチェックしてください。\n"
         "・**🕊️公園や試合場所を利用する他の方の迷惑にならないよう最大限配慮してください。クレームがあると、今後同場所が利用できなくなります。🕊️**\n"

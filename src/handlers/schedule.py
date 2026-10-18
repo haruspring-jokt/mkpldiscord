@@ -176,7 +176,11 @@ async def process_schedule_submission(
     completion_message = (
         f"{home_mention} {away_mention} \n"
         "試合情報を反映しました。対戦後は提出物（スコアシート写真、試合前写真、試合後写真）をこのチャンネルにアップしてください。\n"
-        "試合当日の流れは、シーズンガイドや調整方法チャンネルを参照してください。\n\n"
+        "試合当日の流れは、以下のガイドや調整方法チャンネルを参照してください。\n"
+        "\n"
+        "## :question: 当日の流れガイド（必ず確認してください）\n"
+        "https://app.notion.com/p/molkkyprime/3fb44c08fead80a39e9ee6d3f8c92758 \n"
+        "\n"
         "【ホームクラブ代表者様】\n"
         "試合終了後、以下のGoogleフォームに速報の入力をお願いします。\n\n"
         f":pencil:[**試合結果報告フォーム**｜{league_label}]({form_url})\n\n"
