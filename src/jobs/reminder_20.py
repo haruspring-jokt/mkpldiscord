@@ -50,7 +50,11 @@ async def send_20th_reminders(bot: commands.Bot, alias_to_role: dict[str, str]) 
             message = (
                 f"{find_club_role_mention(guild, home, alias_to_role)} {find_club_role_mention(guild, away, alias_to_role)}\n"
                 "# 前月20日リマインド\n"
-                "前月の20日までに、ホーム側がアウェイが提出した候補日を参考に試合日程を決定してください。どの候補日も参加できない場合は、改めてクラブ間で相談してください。"
+                "前月の20日までに、ホーム側がアウェイが提出した候補日を参考に試合日程を決定してください。どの候補日も参加できない場合は、改めてクラブ間で相談してください。\n"
+                "\n"
+                "## :pencil: 日程調整ガイド\n"
+                "以下のNotionページを読み、日程調整の手順を確認してください。\n"
+                "https://molkkyprime.notion.site/3fc44c08fead80ae952bc7910d4fb572 \n"
             )
             if dry_run:
                 print(
